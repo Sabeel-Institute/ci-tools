@@ -52,8 +52,11 @@ differed only by accident.
      store), declared once in `ci-tools.json`;
    - one seed hook for the native flows (today `seed-emulator-world`,
      `seed-native`, `seed-dev`);
-   - one label (and testID) for the emulator-only sign-in row, which
-     `check-release` must find absent (four spellings today);
+   - one heading for the emulator-only sign-in row, "Dev sign-in (emulator
+     only)" with testID `dev-sign-in`, which `check-release` must find
+     absent: Kanban has it; LMS ("Emulator sign-in (dev only)", also in its
+     staff flow and tutorial recorder) and TT ("Dev (emulator) sign-in")
+     rename theirs;
    - the CI contract: npm scripts `lint`, `typecheck`, `test`,
      `test:emulator`, `test:screens` and the other browser suites (Kanban
      names its six; LMS's become plain npm scripts), screenshots under
