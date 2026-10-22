@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appScheme, backendEndpoints, firebaseFixtures, podVersions } from '../scripts/ci-premerge.mjs';
+import { appScheme, backendEndpoints, firebaseFixtures } from '../scripts/ci-premerge.mjs';
 import { compatibleVersion, sdkProblems } from '../scripts/lib/ci-sdk.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
@@ -34,7 +34,7 @@ describe('pre-merge SDK compatibility', () => {
   it('reports incompatible managed packages without rejecting unrelated dependencies', () => {
     expect(sdkProblems({ 'react-native': '0.86.0' }, {
       'react-native': '0.88.0', 'other-package': '3.0.0',
-    })).toEqual(['react-native 0.88.0 is outside the Expo SDK recommendation 0.86.0']);
+    })).toEqual(['react-native 0.88.0 is outside the Expo SDK recommendation 0.86.0: npm install react-native@0.86.0 -w app']);
   });
 });
 
@@ -67,11 +67,6 @@ describe('secret-free native compilation', () => {
   it('checks the app scheme instead of building an arbitrary pod', () => {
     expect(appScheme({ schemes: ['AppTests', 'OurApp'] }, 'OurApp')).toBe('OurApp');
     expect(() => appScheme({ schemes: ['AppAuth', 'OtherApp'] }, 'OurApp')).toThrow('exactly one');
-  });
-  it('requires existing pinned native pod versions', () => {
-    expect(podVersions('PODS:\n  - App (1.0)\nDEPENDENCIES:\n  - App\nCHECKSUM: 1\n'))
-      .toBe('PODS:\n  - App (1.0)\n');
-    expect(() => podVersions('PODS: []')).toThrow('dependency versions');
   });
 });
 

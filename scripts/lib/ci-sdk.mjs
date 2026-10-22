@@ -22,7 +22,7 @@ export function sdkProblems(recommended, installed) {
   return Object.entries(installed).flatMap(([name, version]) => {
     const expected = recommended[name];
     return expected && !compatibleVersion(version, expected)
-      ? [name + ' ' + version + ' is outside the Expo SDK recommendation ' + expected] : [];
+      ? [`${name} ${version} is outside the Expo SDK recommendation ${expected}: npm install ${name}@${expected} -w app`] : [];
   });
 }
 

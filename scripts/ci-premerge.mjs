@@ -112,12 +112,6 @@ function backend() {
   console.log('Standalone production install loads the backend bundle: ' + names.length + ' functions');
 }
 
-export function podVersions(lock) {
-  const match = /^PODS:\n[\s\S]*?(?=^DEPENDENCIES:)/m.exec(lock);
-  if (!match) throw new Error('Pod lockfile has no dependency versions');
-  return match[0];
-}
-
 export function appScheme(project, projectName) {
   const schemes = project.schemes.filter((name) => !/Tests?$/.test(name));
   if (schemes.includes(projectName)) return projectName;
@@ -128,13 +122,8 @@ export function appScheme(project, projectName) {
 function ios() {
   const directory = temporary();
   if (process.platform !== 'darwin') throw new Error('iOS compilation requires macOS');
-  run('npx', ['--no-install', 'expo', 'prebuild', '--platform', 'ios', '--no-install'], { cwd: 'app' });
-  copyFileSync('app/Podfile.lock', 'app/ios/Podfile.lock');
-  run('pod', ['install', '--repo-update'], { cwd: 'app/ios' });
-  if (podVersions(readFileSync('app/Podfile.lock', 'utf8'))
-    !== podVersions(readFileSync('app/ios/Podfile.lock', 'utf8'))) {
-    throw new Error('Native pods changed; update and commit app/Podfile.lock with the dependency PR');
-  }
+  if (!process.env.CI_TOOLS) throw new Error('Run this as sabeel-ci ci-premerge ios');
+  run('bash', [join(process.env.CI_TOOLS, 'scripts/pods.sh'), '--check']);
   const one = (extension) => {
     const matches = readdirSync('app/ios').filter((name) => name.endsWith(extension));
     if (matches.length !== 1) throw new Error('Expected exactly one application ' + extension);

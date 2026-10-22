@@ -231,26 +231,9 @@ fi
 # the stamp is the commit that is built.
 node "$CI_TOOLS/scripts/build-info.mjs"
 
-# Regenerate app/ios. ALWAYS --platform ios: prebuild is clean by default, and
-# a bare one would delete the committed, hand-edited app/android.
-# --no-install, because the pods are installed below against the pinned lock.
-(cd app && CI=1 npx --no-install expo prebuild --platform ios --no-install)
-
-# The pods the app ships, pinned by the committed app/Podfile.lock. app/ios is
-# regenerated on every build, so without the lock each build resolves the
-# third-party pods afresh and two builds of one commit can ship different
-# native code (seen: a Mac and a runner a patch apart on AppCheckCore and
-# GoogleUtilities). --repo-update, because a machine's local specs index goes
-# stale and cannot find a pinned version; it cannot move a version, the lock
-# decides those. Only PODS: is compared, as the pre-merge build does: the
-# checksums of locally generated podspecs differ per machine.
-cp app/Podfile.lock app/ios/Podfile.lock
-(cd app/ios && pod install --repo-update)
-pods_of() { sed -n '/^PODS:/,/^DEPENDENCIES:/p' "$1"; }
-if [ "$(pods_of app/Podfile.lock)" != "$(pods_of app/ios/Podfile.lock)" ]; then
-  die "pod install resolved other pods than app/Podfile.lock pins (a native dependency changed?).
-If that is intended: cp app/ios/Podfile.lock app/Podfile.lock, commit it, and build again."
-fi
+# Regenerate app/ios and install the pods app/Podfile.lock pins (`pods`
+# says why the lock decides them); stop if they are not what it pins.
+bash "$CI_TOOLS/scripts/pods.sh" --check
 
 WORKSPACE="$(find app/ios -maxdepth 1 -name '*.xcworkspace' | head -1)"
 [ -n "$WORKSPACE" ] || die "no .xcworkspace under app/ios after prebuild and pod install."
