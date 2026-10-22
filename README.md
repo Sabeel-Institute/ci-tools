@@ -295,6 +295,11 @@ first (`### <YYYY-MM-DD> — <summary> — vX.Y.Z`); it titles and describes the
 pull request and the GitHub release. `--ship` prints the two workflow runs that
 put the same commit on the web and on iPhones.
 
+The web goes out through Deploy Web only: it publishes a build of main whose
+source maps it has uploaded to Sentry first. A local `firebase deploy --only
+hosting` builds through the predeploy but uploads no source maps, so the
+crashes of what it ships reach Sentry unreadable.
+
 ## Changing ci-tools
 
 A change here lands through a pull request merged by the owner, like the apps.
@@ -303,5 +308,4 @@ An app picks it up by moving its pin
 re-rendering (`npx sabeel-ci workflows`) and passing its own CI. CI refuses a
 pin that is not on this repository's `main`.
 
-`CHANGELOG.rst` records what each change means for the apps. `docs/PLAN.md` is
-what each app still changes to adopt the current configuration.
+`CHANGELOG.rst` records what each change means for the apps.

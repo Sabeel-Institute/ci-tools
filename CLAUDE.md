@@ -2,7 +2,7 @@
 
 Shared CI, release and device-test tooling for `Sabeel-Institute/lms`,
 `sabeel-institute-kanban` and `sabeel-institute-time-tracker`. Usage is in
-`README.md`; what each app still changes to adopt it is `docs/PLAN.md`.
+`README.md`.
 
 **This repository is PUBLIC**, like the three apps. No secrets, no real names,
 no data. Identifiers already public in the apps (bundle ids, project ids) are
@@ -16,7 +16,7 @@ fine.
 - **What differs between the apps lives in `ci-tools.json`,** declared in
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
-  that differs only by accident changes instead (`docs/PLAN.md`).
+  that differs only by accident changes instead.
 - **Ports come from `lib/ports.mjs` and the app's `emulators.base`.** No
   script here states an app's port. `free-emulator-ports` reaches no further
   than the app's suite ports and stops only processes working inside the

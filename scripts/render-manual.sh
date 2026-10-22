@@ -4,10 +4,10 @@ set -euo pipefail
 #
 #   sabeel-ci render-manual    # docs/USER-MANUAL.md -> docs/USER-MANUAL.pdf
 #
-# `sabeel-ci release` runs it with the version bump. The renderer is
-# scripts/lib/render-manual.py, Python with its dependencies declared inline
-# (PEP 723), so uv runs it in an environment of its own and nothing is
-# installed into the app or the machine's Python. It needs uv and
+# `sabeel-ci release` runs it with the version bump and commits the PDF. The
+# renderer is scripts/lib/render-manual.py, Python with its dependencies
+# declared inline (PEP 723), so uv runs it in an environment of its own and
+# nothing is installed into the app or the machine's Python. It needs uv and
 # google-chrome; nothing before `npm ci` runs it.
 
 : "${CI_TOOLS:?render-manual runs through sabeel-ci: npx sabeel-ci render-manual}"

@@ -25,7 +25,9 @@ Every app's manual is rendered the same way, with Chrome headless:
 
   and image paths are relative to docs/.
 
-Keep the PDF committed beside the markdown and render both together.
+`sabeel-ci release` renders the PDF with the version bump and commits it, so
+the PDF is the released manual; an edit to the markdown between releases needs
+no render.
 """
 import datetime
 import json
