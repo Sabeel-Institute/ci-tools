@@ -1,9 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, appendFileSync, lstatSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { config } from '../lib/config.mjs';
+import { buildAab } from './build-aab.mjs';
+import { WEB_EXPORT, buildWeb, exportedScripts } from './build-web.mjs';
+import { checkWebPush } from './check-web-push.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { maxBuffer: 64 * 1024 * 1024, ...options });
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -49,8 +54,9 @@ function prepare(android) {
     if (!new RegExp(`^\\s*${name}\\s*[=:]\\s*\\S`, 'm').test(normalized)) throw new Error(`Missing signing property ${name}`);
   }
   writePrivate(properties, normalized);
-  writePrivate('app/android/keystore.properties', normalized);
-  appendFileSync(required('GITHUB_ENV'), `SABEEL_TT_KEYSTORE_PROPERTIES=${properties}\nSABEEL_LMS_KEYSTORE_PROPERTIES=${properties}\n`);
+  // Every app's build.gradle signs releases with the properties this names,
+  // and fails closed without them (check-app holds it to that).
+  appendFileSync(required('GITHUB_ENV'), `SABEEL_KEYSTORE_PROPERTIES=${properties}\n`);
   if (process.env.ANDROID_GOOGLE_SERVICES_JSON) {
     const googleServices = JSON.parse(process.env.ANDROID_GOOGLE_SERVICES_JSON);
     const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
@@ -59,6 +65,41 @@ function prepare(android) {
     }
     writePrivate('app/android/app/google-services.json', JSON.stringify(googleServices));
   }
+}
+
+// The iOS build job: app/.env.local as for the web, the build machine's values
+// (Sentry, Apple team, App Store Connect key ids) where `build-ios` loads them,
+// and, for an app that does not commit it, the iOS Firebase config. GitHub
+// masks a multi-line secret line by line ("NAME=value"), never the bare value,
+// so every value is masked on its own before anything can print it.
+function prepareIos() {
+  prepare(false);
+  const settings = required('IOS_BUILD_ENV');
+  maskEnvironment(settings);
+  writePrivate('app/.env.sentry-build-plugin', settings);
+  if (process.env.GOOGLE_SERVICE_INFO_PLIST) {
+    const plist = Buffer.from(process.env.GOOGLE_SERVICE_INFO_PLIST, 'base64').toString('utf8');
+    const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
+    if (/<key>BUNDLE_ID<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)?.[1] !== app.ios.bundleIdentifier) {
+      throw new Error('iOS Firebase configuration has the wrong bundle id');
+    }
+    writePrivate('app/GoogleService-Info.plist', plist);
+  }
+}
+
+// The TestFlight job: the App Store Connect key where Apple's tools and
+// testflight-check look for it, and its ids in the job's environment.
+function appStoreKey() {
+  const settings = required('IOS_BUILD_ENV');
+  maskEnvironment(settings);
+  const { ASC_KEY_ID: id, ASC_ISSUER_ID: issuer } = parseEnv(settings);
+  if (!/^[A-Z0-9]+$/.test(id ?? '') || !/^[0-9a-f-]{36}$/i.test(issuer ?? '')) {
+    throw new Error('IOS_BUILD_ENV must set ASC_KEY_ID (the key id) and ASC_ISSUER_ID (a UUID)');
+  }
+  const key = required('ASC_KEY_P8');
+  if (!key.includes('-----BEGIN PRIVATE KEY-----')) throw new Error('ASC_KEY_P8 is not a .p8 private key');
+  writePrivate(join(homedir(), '.appstoreconnect/private_keys', `AuthKey_${id}.p8`), key.trimEnd() + '\n');
+  appendFileSync(required('GITHUB_ENV'), `ASC_KEY_ID=${id}\nASC_ISSUER_ID=${issuer}\n`);
 }
 
 export function treeHashes(directory) {
@@ -85,22 +126,23 @@ function record(platform, artifact, additional = {}) {
   }, null, 2) + '\n');
 }
 
+// A release bundle or export carries HEAD's commit as build-info stamps it, and
+// must not be marked as built from uncommitted changes.
+function assertCommit(javascript, commit, what) {
+  if (!javascript.some((text) => text.includes(Buffer.from(commit)))) throw new Error(`${what} does not carry the build commit`);
+  if (javascript.some((text) => text.includes(Buffer.from(commit + '+')))) throw new Error(`${what} is marked as built from uncommitted changes`);
+}
+
 function android() {
   const commit = command('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
-  const env = { ...process.env, EXPO_PUBLIC_COMMIT: commit };
-  if (existsSync('scripts/gen-build-info.mjs')) command('node', ['scripts/gen-build-info.mjs'], { stdio: 'inherit', env });
-  if (existsSync('scripts/build-aab.sh')) command('bash', ['scripts/build-aab.sh'], { stdio: 'inherit', env });
-  else command('./gradlew', ['bundleRelease', '--no-daemon'], { cwd: 'app/android', stdio: 'inherit', env });
-  const bundle = 'app/android/app/build/outputs/bundle/release/app-release.aab';
+  const { bundle } = buildAab(config());
   command('jarsigner', ['-verify', bundle]);
   const certificate = command('keytool', ['-printcert', '-jarfile', bundle]).toString();
   const fingerprint = /SHA256:\s*([A-Fa-f0-9:]+)/.exec(certificate)?.[1].replaceAll(':', '').toLowerCase();
   if (!fingerprint || fingerprint !== required('ANDROID_SIGNING_CERT_SHA256').replaceAll(':', '').toLowerCase()) {
     throw new Error('AAB certificate does not match the existing release/upload key');
   }
-  const javascript = command('unzip', ['-p', bundle, 'base/assets/index.android.bundle']);
-  if (!javascript.includes(Buffer.from(commit))) throw new Error('AAB does not carry the build commit');
-  if (javascript.includes(Buffer.from(commit + '+'))) throw new Error('AAB is marked as built from uncommitted changes');
+  assertCommit([command('unzip', ['-p', bundle, 'base/assets/index.android.bundle'])], commit, 'AAB');
   const artifact = join(required('RUNNER_TEMP'), 'android-artifact');
   mkdirSync(artifact, { recursive: true });
   copyFileSync(bundle, join(artifact, 'app-release.aab'));
@@ -108,14 +150,16 @@ function android() {
 }
 
 function web() {
-  command('npm', ['run', 'web:export', '-w', '@sabeel/app'], { stdio: 'inherit' });
-  if (existsSync('scripts/check-web-push.mjs')) command('node', ['scripts/check-web-push.mjs'], { stdio: 'inherit' });
+  const commit = command('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
+  buildWeb();
+  const source = resolve(WEB_EXPORT);
+  console.log(checkWebPush(source));
   const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
-  const source = resolve('app/dist-web');
   const hashes = treeHashes(source);
   if (!hashes['index.html'] || Object.keys(hashes).some((path) => /\.map$|(^|\/)\.env/.test(path))) {
     throw new Error('Web artifact must contain index.html and no source maps or environment files');
   }
+  assertCommit(exportedScripts().map((path) => readFileSync(path)), commit, 'Web export');
   for (const path of Object.keys(hashes)) {
     const target = join(artifact, 'site', path);
     mkdirSync(dirname(target), { recursive: true });
@@ -181,6 +225,8 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   const task = process.argv[2];
   if (task === 'prepare-web') prepare(false);
   else if (task === 'prepare-android') prepare(true);
+  else if (task === 'prepare-ios') prepareIos();
+  else if (task === 'asc-key') appStoreKey();
   else if (task === 'android') android();
   else if (task === 'web') web();
   else if (task === 'resolve-build') resolveBuild();

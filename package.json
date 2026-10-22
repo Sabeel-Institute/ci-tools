@@ -14,11 +14,11 @@
     "workflows"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
     "test": "vitest run",
-    "lint:shell": "shellcheck scripts/*.sh",
+    "lint:shell": "shellcheck -x scripts/*.sh scripts/lib/*.sh",
     "lint:workflows": "rm -rf .rendered && node scripts/workflows.mjs --to .rendered/full --config test/fixtures/full.json && node scripts/workflows.mjs --to .rendered/minimal --config test/fixtures/minimal.json && actionlint -color .github/workflows/*.yml .rendered/*/*.yml"
   },
   "dependencies": {

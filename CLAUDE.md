@@ -16,15 +16,29 @@ fine.
 - **What differs between the apps lives in `ci-tools.json`,** declared in
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
-  that differs only by accident changes instead (`docs/PLAN.md`, stage 3).
-  Two holdovers remain until then: `ci-platform` probes for an app's
-  `gen-build-info`, `build-aab` and `check-web-push` scripts, and
-  `check-release` boots a local AVD with the app's `scripts/emulator.sh`.
-- **Scripts that run before `npm ci` use Node built-ins only:** `ci-platform`,
-  `ci-play`, `ci-hosting-smoke`, `ci-functions require-ci`, `ci-premerge
-  prepare`, `check-release`, the shell scripts. The release jobs never install
-  the app's dependencies before verifying provenance, and the device check
-  never installs them at all.
+  that differs only by accident changes instead (`docs/PLAN.md`).
+- **Ports come from `lib/ports.mjs` and the app's `emulators.base`.** No
+  script here states an app's port. `free-emulator-ports` reaches no further
+  than the app's suite ports and stops only processes working inside the
+  checkout: the apps share one machine, and a wider sweep killed a sibling's
+  emulator.
+- **Scripts that run before `npm ci` use Node built-ins only,** and so does
+  everything they import: `ci-platform` (with `build-aab`, `build-web` and
+  theirs), `ci-play` and `publish-play`, `ci-hosting-smoke`, `ci-functions
+  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`, the
+  shell scripts. The release jobs never install the app's dependencies before
+  verifying provenance; Publish Android and the device check never install
+  them at all.
+- **The push tools run the app's own sender.** `check-push` and
+  `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
+  `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
+  here, and never print a key. Their tests stand fakes in for every service.
+- **The version is written once, in `app/app.json`.** Android's versionCode
+  and the iOS build number follow from it (`lib/version.mjs`); nothing else
+  states one, and `check-app` refuses an app where something does.
+- **Releases go through pull requests.** `release` pushes only
+  `release/v<version>` and opens its pull request; the owner merges it, and
+  `release --ship`, run by the owner, creates the tag with the GitHub release.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch
@@ -32,6 +46,9 @@ fine.
   from main's pin.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
+- **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
+  and `ci-sdk.mjs` are imported.
 
 ## Tests
 

@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Native flows: the debug build against the emulators, driven by Maestro
+# (`maestro/*.yaml`), on Android or the iOS simulator. They cover the seams the
+# browser suites cannot reach (Yoga's layout, the keyboard, gestures, native
+# pickers and editors, playback in the background) on a real build. CI runs
+# exactly this.
+#
+#   sabeel-ci native-e2e                     # every flow, Android
+#   sabeel-ci native-e2e maestro/<flow>.yaml # one flow
+#   sabeel-ci native-e2e --ios [flow]        # the iOS simulator (macOS)
+#
+# Android needs one booted emulator (`sabeel-ci emulator headless` here,
+# `ci-avd` in CI); iOS builds for and boots a simulator itself
+# (`ios-sim-build`). Maestro comes from `install-maestro`. Each flow is told
+# the installed app's id as APP_ID.
+#
+# It stamps and builds the debug app, starts the app's emulators
+# (`sabeel-ci emulators`), runs the seed ci-tools.json names in native.seed
+# (with a web dev server on the app's `web` port, its address in E2E_BASE, when
+# native.seedWeb says the seed drives the web app), serves the JavaScript from
+# Metro on 8081 with EXPO_PUBLIC_USE_EMULATORS=1, and runs the flows.
+# Screenshots, Maestro's report and the logs land in shots/native/. It stops
+# what it started; a held 8081 or web port is refused, since Metro's port is
+# shared with the sibling apps.
+
+PLATFORM=android
+if [ "${1:-}" = --ios ]; then PLATFORM=ios; shift; fi
+FLOWS="${1:-maestro}"
+OUT="$PWD/shots/native"
+LOGS="$OUT/logs"
+METRO_PORT=8081
+# `ports` reads ci-tools.json through its checks, so the settings below are sound.
+WEB_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" web)
+FIRESTORE_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" firestore)
+SEED=$(node -p "require('./ci-tools.json').native.seed")
+SEED_WEB=$(node -p "require('./ci-tools.json').native.seedWeb === true")
+REVERSE=$(node -p "(require('./ci-tools.json').native.reversePorts ?? []).join(' ')")
+
+pids_on_port() {
+  if command -v ss >/dev/null; then ss -lptn "sport = :$1" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u || true
+  else lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u || true; fi
+}
+cwd_of() { readlink "/proc/$1/cwd" 2>/dev/null || lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'; }
+# shellcheck disable=SC2317,SC2329 # used by cleanup, the EXIT trap
+pid_tree() { local child; for child in $(pgrep -P "$1" 2>/dev/null); do pid_tree "$child"; done; echo "$1"; }
+# shellcheck disable=SC2317,SC2329 # used by cleanup, the EXIT trap
+stop_tree() { # stop_tree <pid>: TERM the pid and everything under it, then KILL what is left
+  local pids
+  pids=$(pid_tree "$1")
+  # shellcheck disable=SC2086 # a list of pids
+  kill $pids 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    # shellcheck disable=SC2086
+    kill -0 $pids 2>/dev/null || return 0
+    sleep 0.5
+  done
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+}
+
+if [ "$PLATFORM" = android ]; then
+  APP_ID=$(node --input-type=module -e "import { debugAppId } from '$CI_TOOLS/scripts/lib/android-app.mjs'; process.stdout.write(debugAppId())")
+  devices=$(adb devices | sed -n 's/\tdevice$//p')
+  if [ "$(printf '%s\n' "$devices" | grep -c .)" -ne 1 ]; then
+    echo "native-e2e: needs exactly one booted Android device; found: ${devices:-none}" >&2
+    exit 1
+  fi
+else
+  APP_ID=$(node -p "require('./app/app.json').expo.ios.bundleIdentifier")
+fi
+command -v maestro >/dev/null || PATH="$(bash "$CI_TOOLS/scripts/install-maestro.sh"):$PATH"
+for port in "$METRO_PORT" "$WEB_PORT"; do
+  for holder in $(pids_on_port "$port"); do
+    echo "native-e2e: port $port is held by pid $holder ($(cwd_of "$holder")); refusing to start beside it" >&2
+    exit 1
+  done
+done
+rm -rf "$OUT"
+mkdir -p "$LOGS"
+
+node "$CI_TOOLS/scripts/build-info.mjs"
+if [ "$PLATFORM" = android ]; then
+  echo "Building the debug APK…"
+  ( cd app/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 --quiet )
+  apk=$(find app/android/app/build/outputs/apk/debug -name '*.apk' | grep -E 'x86_64|app-debug' | head -1)
+  adb install -r "$apk" >/dev/null 2>&1 || { adb uninstall "$APP_ID" >/dev/null 2>&1 || true; adb install "$apk" >/dev/null; }
+  echo "Installed $apk"
+else
+  echo "Building the debug app for the iOS simulator…"
+  DEVICE=$(bash "$CI_TOOLS/scripts/ios-sim-build.sh" "$OUT/ios-build")
+  echo "Installed $APP_ID on simulator $DEVICE"
+fi
+
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
+cleanup() {
+  local rc=$? pid
+  trap - EXIT INT TERM HUP
+  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}"; do
+    [ -z "$pid" ] || stop_tree "$pid"
+  done
+  bash "$CI_TOOLS/scripts/free-emulator-ports.sh" >/dev/null 2>&1 || true
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+wait_for() { # wait_for <url> <label> <tries>
+  for _ in $(seq 1 "$3"); do
+    curl -sf -o /dev/null "$1" && return 0
+    sleep 3
+  done
+  echo "native-e2e: $2 never came up" >&2
+  return 1
+}
+
+# NO_COLOR: in CI the Firebase CLI colours its log, which splits the line
+# grepped below.
+NO_COLOR=1 node "$CI_TOOLS/scripts/emulators.mjs" >"$LOGS/emulators.log" 2>&1 &
+FB_PID=$!
+wait_for "http://127.0.0.1:${FIRESTORE_PORT}/" firestore 100
+# A seed that runs before onUserCreate is registered strands an account with
+# no profile.
+for _ in $(seq 1 60); do
+  grep -q 'onUserCreate.*initialized' "$LOGS/emulators.log" && break
+  sleep 3
+done
+grep -q 'onUserCreate.*initialized' "$LOGS/emulators.log" \
+  || { echo "native-e2e: onUserCreate never registered; see $LOGS/emulators.log" >&2; exit 1; }
+
+if [ "$SEED_WEB" = true ]; then
+  # The seed drives the web app, so a web dev server runs for the seed alone.
+  ( cd app && CI=1 EXPO_PUBLIC_USE_EMULATORS=1 exec npx expo start --web --port "$WEB_PORT" --clear \
+      >"$LOGS/web.log" 2>&1 ) &
+  WEB_PID=$!
+  wait_for "http://127.0.0.1:${WEB_PORT}/" "the web dev server" 90
+fi
+E2E_BASE="http://127.0.0.1:${WEB_PORT}/" node "$SEED" >"$LOGS/seed.log" 2>&1 \
+  || { echo "native-e2e: the seed failed; see $LOGS/seed.log" >&2; exit 1; }
+if [ -n "${WEB_PID:-}" ]; then stop_tree "$WEB_PID"; WEB_PID=; fi
+# What the app reaches on this machine's 127.0.0.1 (LMS's media store signs
+# its URLs for it), which on the Android emulator is the emulator itself. The
+# iOS simulator shares this machine's network.
+if [ "$PLATFORM" = android ]; then
+  for name in $REVERSE; do
+    port=$(node "$CI_TOOLS/scripts/ports.mjs" "$name")
+    adb reverse "tcp:$port" "tcp:$port" >/dev/null
+  done
+fi
+
+# The debug build loads its JavaScript from 10.0.2.2:8081 at launch.
+( cd app && CI=1 EXPO_PUBLIC_USE_EMULATORS=1 EXPO_PUBLIC_E2E=1 exec npx expo start --port "$METRO_PORT" --clear \
+    >"$LOGS/metro.log" 2>&1 ) &
+METRO_PID=$!
+wait_for "http://127.0.0.1:${METRO_PORT}/status" Metro 60
+# Bundle before launch, so a bundling failure fails here with Metro's log rather
+# than as a flow timing out on a red screen. Expo serves the app's entry at its
+# virtual path; /index.bundle is a 404.
+echo "Bundling for ${PLATFORM}…"
+curl -sf -o /dev/null --max-time 600 \
+  "http://127.0.0.1:${METRO_PORT}/.expo/.virtual-metro-entry.bundle?platform=${PLATFORM}&dev=true&minify=false" \
+  || { echo "native-e2e: Metro could not bundle the app; see $LOGS/metro.log" >&2; exit 1; }
+
+run_flows() {
+  maestro ${DEVICE:+--device "$DEVICE"} test "$FLOWS" -e APP_ID="$APP_ID" \
+    --format junit --output "$OUT/report.xml" --test-output-dir "$OUT" &
+  MAESTRO_PID=$!
+  local status=0
+  wait "$MAESTRO_PID" || status=$?
+  MAESTRO_PID=
+  return "$status"
+}
+
+rc=0
+[ "$PLATFORM" = ios ] || adb logcat -c
+run_flows || rc=$?
+if [ "$PLATFORM" = android ]; then
+  adb logcat -d >"$LOGS/logcat.txt" 2>&1 || true
+  # Debug builds only: React Native's renderer sometimes dies in
+  # MountingCoordinator::pullTransaction as the app loads from Metro (three
+  # times across the apps on 2026-10-21; never in a release build, which
+  # check-release cold-starts on every build). When that is the failure, the
+  # flows run once more and the first try's log is kept. Any other failure
+  # stands.
+  if [ "$rc" -ne 0 ] && grep -q 'MountingCoordinator::pullTransaction' "$LOGS/logcat.txt"; then
+    echo "native-e2e: the debug build hit React Native's pullTransaction crash; running the flows once more" >&2
+    mv "$LOGS/logcat.txt" "$LOGS/logcat-first-try.txt"
+    adb logcat -c
+    rc=0
+    run_flows || rc=$?
+    adb logcat -d >"$LOGS/logcat.txt" 2>&1 || true
+  fi
+else
+  # Maestro's iOS driver sometimes loses an element it is snapshotting while
+  # the screen changes, and reports the device unreachable: the driver failed,
+  # not the app. Run the flows once more when that is the failure.
+  if [ "$rc" -ne 0 ] && grep -q 'DeviceUnreachableException' "$OUT/report.xml" 2>/dev/null; then
+    echo "native-e2e: Maestro lost its iOS driver; running the flows once more" >&2
+    mv "$OUT/report.xml" "$OUT/report-first-try.xml"
+    rc=0
+    run_flows || rc=$?
+  fi
+  xcrun simctl spawn "$DEVICE" log show --last 30m --style compact 2>/dev/null | tail -n 20000 >"$LOGS/device.txt" || true
+fi
+# What Maestro could see when the flows failed: the labels to match against.
+if [ "$rc" -ne 0 ]; then
+  maestro ${DEVICE:+--device "$DEVICE"} hierarchy >"$LOGS/hierarchy-at-failure.json" 2>/dev/null || true
+fi
+exit "$rc"

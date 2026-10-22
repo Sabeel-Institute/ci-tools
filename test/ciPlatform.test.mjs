@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { environmentValues, hostingConfig, treeHashes } from '../scripts/ci-platform.mjs';
@@ -81,11 +81,14 @@ describe('platform build and deployment safety', () => {
       ANDROID_KEYSTORE: Buffer.from('fixture key').toString('base64'),
       ANDROID_KEYSTORE_PROPERTIES: 'storeFile=/old/machine/key.jks\nstorePassword=fake-store\nkeyAlias=upload\nkeyPassword=fake-key\n',
     });
-    const properties = readFileSync(join(test.directory, 'app/android/keystore.properties'), 'utf8');
+    const path = join(test.directory, 'android-keystore.properties');
+    const properties = readFileSync(path, 'utf8');
     expect(properties).not.toContain('/old/machine');
     expect(properties).toContain(`storeFile=${test.directory}/android-signing.keystore`);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(statSync(join(test.directory, 'android-signing.keystore')).mode & 0o777).toBe(0o600);
-    expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toContain('SABEEL_LMS_KEYSTORE_PROPERTIES=');
+    expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toBe(`SABEEL_KEYSTORE_PROPERTIES=${path}\n`);
+    expect(existsSync(join(test.directory, 'app/android/keystore.properties'))).toBe(false);
   });
 
   it('rejects production builds configured to use Firebase emulators', () => {
@@ -148,10 +151,56 @@ describe('platform build and deployment safety', () => {
     expect(deploy).not.toMatch(/^ {2}(push|pull_request|workflow_run):/m);
     expect(deploy).toContain('if: inputs.deploy');
     expect(deploy).toContain('default: false');
-    for (const name of ['android.yml', 'web.yml']) {
+    for (const name of ['android.yml', 'web.yml', 'ios.yml']) {
       expect(workflow(name)).toContain('branches: [main]');
     }
+    expect(workflow('ios.yml')).toContain("if: github.event_name == 'workflow_dispatch' && inputs.testflight");
     expect(workflow('android.yml')).not.toMatch(/publish:play|publish-play|upload_to_play_store/);
     expect(workflow('android.yml')).toContain('packages: platform-tools');
+  });
+
+  it('restores the iOS build configuration with private permissions, every value masked', () => {
+    const test = fixture();
+    test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
+    const plist = '<plist><dict><key>BUNDLE_ID</key><string>com.sabeelinstitute.example</string></dict></plist>\n';
+    const output = test.run('prepare-ios', {
+      APP_ENV_LOCAL: 'EXPO_PUBLIC_SENTRY_DSN="https://dsn@example.invalid/1"\n',
+      IOS_BUILD_ENV: '# the build machine\nSENTRY_AUTH_TOKEN="token=value"\r\nIOS_TEAM_ID=TEAM123456\nASC_KEY_ID=\n',
+      GOOGLE_SERVICE_INFO_PLIST: Buffer.from(plist).toString('base64'),
+    });
+    expect(output.split('\n').filter((line) => line.startsWith('::add-mask::')).sort())
+      .toEqual(['::add-mask::TEAM123456', '::add-mask::https://dsn@example.invalid/1', '::add-mask::token=value']);
+    for (const path of ['app/.env.local', 'app/.env.sentry-build-plugin', 'app/GoogleService-Info.plist']) {
+      expect(statSync(join(test.directory, path)).mode & 0o777, path).toBe(0o600);
+    }
+    expect(readFileSync(join(test.directory, 'app/.env.sentry-build-plugin'), 'utf8')).toContain('IOS_TEAM_ID=TEAM123456');
+    expect(readFileSync(join(test.directory, 'app/GoogleService-Info.plist'), 'utf8')).toBe(plist);
+  });
+
+  it('writes the iOS Firebase configuration only for this app, and only when there is one', () => {
+    const test = fixture();
+    test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
+    test.run('prepare-ios', { IOS_BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n' });
+    expect(existsSync(join(test.directory, 'app/GoogleService-Info.plist'))).toBe(false);
+    const other = Buffer.from('<key>BUNDLE_ID</key><string>com.sabeelinstitute.other</string>').toString('base64');
+    expect(() => test.run('prepare-ios', { IOS_BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n', GOOGLE_SERVICE_INFO_PLIST: other })).toThrow(/wrong bundle id/);
+    expect(() => test.run('prepare-ios', {})).toThrow(/Missing IOS_BUILD_ENV/);
+    expect(() => test.run('prepare-ios', { APP_ENV_LOCAL: 'EXPO_PUBLIC_USE_EMULATORS=1\n', IOS_BUILD_ENV: 'A=1\n' })).toThrow(/emulators/);
+  });
+
+  it('puts the App Store Connect key where Apple\'s tools look, and its ids in the job', () => {
+    const test = fixture();
+    const key = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
+    const settings = 'ASC_KEY_ID=ABC123DEF4\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\nSENTRY_AUTH_TOKEN=token\n';
+    const output = test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: settings, ASC_KEY_P8: key });
+    expect(output).toContain('::add-mask::token');
+    const path = join(test.directory, '.appstoreconnect/private_keys/AuthKey_ABC123DEF4.p8');
+    expect(readFileSync(path, 'utf8')).toBe(key + '\n');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toBe('ASC_KEY_ID=ABC123DEF4\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\n');
+    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: 'ASC_KEY_ID=../../x\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\n', ASC_KEY_P8: key }))
+      .toThrow(/must set ASC_KEY_ID/);
+    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: 'ASC_KEY_ID=ABC123DEF4\n', ASC_KEY_P8: key })).toThrow(/ASC_ISSUER_ID/);
+    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: settings, ASC_KEY_P8: 'not a key' })).toThrow(/not a \.p8 private key/);
   });
 });
