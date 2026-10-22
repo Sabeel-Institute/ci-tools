@@ -1,1 +1,6 @@
-{ "name": "example" }
+{
+  "name": "example",
+  "release": {
+    "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
+  }
+}

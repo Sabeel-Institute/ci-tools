@@ -26,7 +26,9 @@ function app() {
   };
   put('ci-tools.json', full);
   put('.gitignore', '.env.local\napp/android/keystore.properties\n');
-  put('app/app.json', { expo: { android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
+  put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
+  put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
@@ -43,10 +45,15 @@ describe('ci-tools.json', () => {
   });
 
   it('refuses a missing, misspelt or malformed setting', () => {
-    expect(validate({ name: 'lms' })).toEqual({ name: 'lms' });
-    expect(() => validate({})).toThrow(/name is required/);
-    expect(() => validate({ name: 'lms', nmae: 'x' })).toThrow(/unknown key nmae/);
-    expect(() => validate({ name: '' })).toThrow(/invalid value/);
+    expect(validate(full)).toEqual(full);
+    expect(() => validate({ release: full.release })).toThrow(/name is required/);
+    expect(() => validate({ name: 'lms' })).toThrow(/release is required/);
+    expect(() => validate({ name: 'lms', release: {} })).toThrow(/release\.appSigningCertificate is required/);
+    expect(() => validate({ ...full, nmae: 'x' })).toThrow(/unknown key nmae/);
+    expect(() => validate({ ...full, name: '' })).toThrow(/invalid value/);
+    for (const certificate of ['ab:'.repeat(31) + 'ab', 'AB'.repeat(32), 'AB:'.repeat(30) + 'AB']) {
+      expect(() => validate({ ...full, release: { appSigningCertificate: certificate } }), certificate).toThrow(/release\.appSigningCertificate has an invalid value/);
+    }
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
@@ -140,7 +147,7 @@ describe('check-app', () => {
   it('reports a secret file Git would pick up, bad identifiers and a stale functions lock', () => {
     const { root, put } = app();
     put('.gitignore', '.env.local\n');
-    put('app/app.json', { expo: { android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
+    put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>', buildNumber: '2001' } } });
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
     expect(found).toHaveLength(3);

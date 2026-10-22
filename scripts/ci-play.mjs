@@ -1,36 +1,16 @@
 import { execFileSync } from 'node:child_process';
-import { createHash, createSign } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { androidIdentity } from '../lib/version.mjs';
+import { checkPlayAccess, fingerprint } from './publish-play.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...options });
 const required = (name) => {
   if (!process.env[name]) throw new Error('Missing ' + name);
   return process.env[name];
 };
-const fingerprint = (value) => value.replaceAll(':', '').toLowerCase();
-
-export function androidIdentity(app, gradle) {
-  const literalCode = /^\s*versionCode\s+(\d+)\b/m.exec(gradle)?.[1];
-  const literalName = /^\s*versionName\s+"([^"]+)"/m.exec(gradle)?.[1];
-  let versionCode;
-  if (literalCode && literalName) {
-    if (literalName !== app.version) throw new Error('Android native and app versions differ');
-    versionCode = Number(literalCode);
-  } else {
-    if (!/versionCode\s+computedVersionCode\b/.test(gradle) || !/versionName\s+expoVersion\b/.test(gradle)
-      || !/^\d+\.\d+\.\d+$/.test(app.version)) throw new Error('Unsupported Android version configuration');
-    const [major, minor, patch] = app.version.split('.').map(Number);
-    if (minor > 999 || patch > 999) throw new Error('Android version components exceed the versionCode scheme');
-    versionCode = major * 1000000 + minor * 1000 + patch;
-  }
-  if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2100000000
-    || (app.android.versionCode !== undefined && app.android.versionCode !== versionCode)) {
-    throw new Error('Invalid or inconsistent Android versionCode');
-  }
-  return { packageName: app.android.package, versionName: app.version, versionCode };
-}
 
 export function assertManifest(manifest, expected) {
   const root = /<manifest\b([\s\S]*?)>/.exec(manifest)?.[1] ?? '';
@@ -83,33 +63,6 @@ function verifyArtifact() {
   return expected;
 }
 
-export async function checkPlayAccess(credential, packageName, request = fetch) {
-  const part = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const unsigned = part({ alg: 'RS256', typ: 'JWT' }) + '.' + part({
-    iss: credential.client_email, scope: 'https://www.googleapis.com/auth/androidpublisher',
-    aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600,
-  });
-  const assertion = unsigned + '.' + createSign('RSA-SHA256').update(unsigned).sign(credential.private_key, 'base64url');
-  const auth = await request('https://oauth2.googleapis.com/token', {
-    method: 'POST', body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!auth.ok) throw new Error('Play credential authentication failed: HTTP ' + auth.status);
-  const token = (await auth.json()).access_token;
-  if (!token) throw new Error('Play credential authentication returned no token');
-  console.log('::add-mask::' + token);
-  const url = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' + encodeURIComponent(packageName) + '/edits';
-  const options = { headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(30000) };
-  const inserted = await request(url, { ...options, method: 'POST' });
-  if (!inserted.ok) throw new Error('Play refused testing-track access for ' + packageName + ': HTTP ' + inserted.status);
-  const edit = await inserted.json();
-  if (!edit.id) throw new Error('Play returned no permission-check edit');
-  const discarded = await request(url + '/' + encodeURIComponent(edit.id), { ...options, method: 'DELETE', signal: AbortSignal.timeout(30000) });
-  if (!discarded.ok) throw new Error('Could not discard Play permission-check edit: HTTP ' + discarded.status);
-  console.log('Play testing access verified for ' + packageName + '; nothing uploaded or released');
-}
-
 async function release() {
   const publish = process.env.PUBLISH_PLAY ?? 'false';
   if (!['true', 'false'].includes(publish)) throw new Error('PUBLISH_PLAY must be true or false');
@@ -123,16 +76,19 @@ async function release() {
   console.log('::add-mask::' + credential.private_key.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A'));
   if (publish === 'false') {
     await checkPlayAccess(credential, expected.packageName);
+    console.log('Play testing access verified for ' + expected.packageName + '; nothing uploaded or released');
     return;
   }
-  copyFileSync(required('PLAY_PUBLISHER_SCRIPT'), 'scripts/publish-play.mjs');
+  // The publisher every app uses, from this ci-tools (main's pin), never from
+  // the build being released. It reads the credential from a file only it can
+  // read, which goes when it finishes, pass or fail.
   const directory = mkdtempSync(join(required('RUNNER_TEMP'), 'play-credential-'));
   try {
     const path = join(directory, 'publisher.json');
     writeFileSync(path, JSON.stringify(credential), { mode: 0o600 });
-    const env = { ...process.env, PLAY_KEY: path, SK_PLAY_KEY: path };
+    const env = { ...process.env, PLAY_KEY: path };
     delete env.PLAY_PUBLISHER_JSON;
-    command('node', ['scripts/publish-play.mjs', '--internal'], { env, stdio: 'inherit' });
+    command(process.execPath, [join(required('CI_TOOLS'), 'bin/sabeel-ci.mjs'), 'publish-play', '--internal'], { env, stdio: 'inherit' });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -4,7 +4,9 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { androidIdentity, assertManifest, checkPlayAccess } from '../scripts/ci-play.mjs';
+import { assertManifest } from '../scripts/ci-play.mjs';
+import { checkPlayAccess } from '../scripts/publish-play.mjs';
+import { androidIdentity } from '../lib/version.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -12,9 +14,9 @@ const root = resolve(import.meta.dirname, '..');
 const script = join(root, 'scripts/ci-play.mjs');
 const commit = 'c'.repeat(40);
 const certificate = 'ab'.repeat(32);
-const app = { version: '0.2.0', android: { package: 'com.test.app', versionCode: 38 } };
-const gradle = 'versionCode 38\nversionName "0.2.0"\n';
-const manifest = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.test.app" android:versionCode="38" android:versionName="0.2.0"/>';
+const app = { version: '0.2.0', android: { package: 'com.test.app' } };
+const gradle = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+const manifest = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.test.app" android:versionCode="2000" android:versionName="0.2.0"/>';
 const fixtures = [];
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
 
@@ -45,11 +47,13 @@ function fixture() {
   tool('keytool', 'process.stdout.write("SHA256: " + (process.env.FAKE_CERT || "' + certificate + '"));');
   tool('unzip', 'process.stdout.write(process.env.FAKE_JS || "' + commit + '");');
   tool('java', 'process.stdout.write(process.env.FAKE_MANIFEST || ' + JSON.stringify(manifest) + ');');
-  put('scripts/publish-play.mjs', "throw new Error('Historical publisher must not execute');");
-  put('saved/publish-play.mjs', [
+  // An app's own copy of the publisher, which must never run, and a stand-in
+  // for ci-tools' sabeel-ci that records how it was asked to publish.
+  put('scripts/publish-play.mjs', "throw new Error('An app\\'s own publisher must not execute');");
+  put('tools/bin/sabeel-ci.mjs', [
     "import {readFileSync,statSync,writeFileSync} from 'node:fs';",
     "const key=process.env.PLAY_KEY;",
-    "const data={flag:process.argv[2],keyPath:key,mode:statSync(key).mode&0o777,matchingPaths:key===process.env.SK_PLAY_KEY,secretInEnvironment:'PLAY_PUBLISHER_JSON' in process.env};",
+    "const data={args:process.argv.slice(2),keyPath:key,mode:statSync(key).mode&0o777,secretInEnvironment:'PLAY_PUBLISHER_JSON' in process.env};",
     "JSON.parse(readFileSync(key,'utf8'));",
     "writeFileSync('publisher-call.json',JSON.stringify(data));",
     "if(process.env.FAIL_PUBLISHER) process.exit(1);",
@@ -73,7 +77,7 @@ function fixture() {
       GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY_OWNER: 'Sabeel-Institute',
       ANDROID_SIGNING_CERT_SHA256: certificate, PLAY_PUBLISHER_ACCOUNT: 'publisher@example.test',
       PLAY_PUBLISHER_JSON: JSON.stringify({ type: 'service_account', client_email: 'publisher@example.test', private_key: 'FAKE\nPRIVATE\nKEY' }),
-      PLAY_PUBLISHER_SCRIPT: join(directory, 'saved/publish-play.mjs'),
+      CI_TOOLS: join(directory, 'tools'),
       NODE_OPTIONS: '--import=' + join(directory, 'probe.mjs'),
       ...env,
     },
@@ -82,27 +86,17 @@ function fixture() {
 }
 
 describe('manual Play artifact releases', () => {
-  it('handles computed Kanban/Time Tracker and explicit LMS native versions', () => {
-    expect(androidIdentity(app, gradle)).toEqual({ packageName: 'com.test.app', versionName: '0.2.0', versionCode: 38 });
-    expect(androidIdentity({ ...app, android: { package: 'com.test.app' } }, 'versionCode computedVersionCode\nversionName expoVersion')).toEqual({
-      packageName: 'com.test.app', versionName: '0.2.0', versionCode: 2000,
-    });
-    expect(() => androidIdentity(app, 'versionCode 39\nversionName "0.2.0"')).toThrow(/versionCode/);
-    expect(() => androidIdentity(app, 'versionCode 38\nversionName "0.3.0"')).toThrow(/versions differ/);
-    expect(() => androidIdentity(app, '')).toThrow(/Unsupported/);
-  });
-
   it('reads exact package and versions from the decoded AAB manifest', () => {
     const expected = androidIdentity(app, gradle);
     expect(() => assertManifest(manifest, expected)).not.toThrow();
-    for (const change of [{ packageName: 'com.wrong' }, { versionName: '0.2.1' }, { versionCode: 39 }]) {
+    for (const change of [{ packageName: 'com.wrong' }, { versionName: '0.2.1' }, { versionCode: 2001 }]) {
       expect(() => assertManifest(manifest, { ...expected, ...change })).toThrow(/manifest/);
     }
   });
 
   it('verifies and stages the exact signed build without invoking the publisher', () => {
     const test = fixture();
-    expect(test.run()).toContain('Verified com.test.app 0.2.0 (38)');
+    expect(test.run()).toContain('Verified com.test.app 0.2.0 (2000)');
     expect(readFileSync(join(test.directory, 'app/android/app/build/outputs/bundle/release/app-release.aab'), 'utf8')).toBe('signed bundle fixture');
     expect(existsSync(join(test.directory, 'publisher-call.json'))).toBe(false);
   });
@@ -140,13 +134,12 @@ describe('manual Play artifact releases', () => {
     expect(output).not.toContain(privateKey);
   });
 
-  it('publishes internally only with the explicit true input', () => {
+  it("publishes internally only with the explicit true input, through ci-tools' publish-play", () => {
     const test = fixture();
     test.run('release', { PUBLISH_PLAY: 'true' });
     const call = JSON.parse(readFileSync(join(test.directory, 'publisher-call.json'), 'utf8'));
-    expect(call.flag).toBe('--internal');
+    expect(call.args).toEqual(['publish-play', '--internal']);
     expect(call.mode).toBe(0o600);
-    expect(call.matchingPaths).toBe(true);
     expect(call.secretInEnvironment).toBe(false);
     expect(existsSync(call.keyPath)).toBe(false);
     expect(() => test.run('release', { PUBLISH_PLAY: 'yes' })).toThrow(/true or false/);
@@ -178,9 +171,12 @@ describe('manual Play artifact releases', () => {
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
     expect(workflow).toContain('resolve-android-build');
     expect(workflow).toContain('sha256sum --check');
-    expect(workflow).toContain('cp scripts/publish-play.mjs "$RUNNER_TEMP/play-release/"');
     expect(workflow.indexOf('ci-tools, at the commit package-lock.json pins')).toBeLessThan(workflow.indexOf('ref: ${{ steps.build.outputs.sha }}'));
-    expect(workflow.indexOf('PLAY_PUBLISHER_JSON:')).toBeGreaterThan(workflow.indexOf('run: npm ci'));
+    // The publisher is ci-tools' own, fetched at main's pin before the build is
+    // checked out; the job never installs the build's dependencies.
+    expect(workflow).not.toMatch(/publish-play\.mjs|PLAY_PUBLISHER_SCRIPT|^\s*- run: npm ci$/m);
+    expect(workflow.match(/PLAY_PUBLISHER_JSON:/g)).toHaveLength(1);
+    expect(workflow.indexOf('PLAY_PUBLISHER_JSON:')).toBeGreaterThan(workflow.indexOf('run: sabeel-ci ci-play verify'));
     expect(workflow).not.toMatch(/bundleRelease|build:aab|gradlew|workflow_run:|production.*track/);
   });
 
