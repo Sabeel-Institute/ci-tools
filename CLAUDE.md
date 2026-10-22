@@ -25,6 +25,10 @@ fine.
   prepare`, `check-release`, the shell scripts. The release jobs never install
   the app's dependencies before verifying provenance, and the device check
   never installs them at all.
+- **The push tools run the app's own sender.** `check-push` and
+  `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
+  `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
+  here, and never print a key. Their tests stand fakes in for every service.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch

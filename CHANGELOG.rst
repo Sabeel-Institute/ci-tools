@@ -15,3 +15,9 @@ Unreleased
   the app's lockfile pins; the release jobs no longer copy validators aside.
 - ``sabeel-ci check-app``: what ci-tools assumes of an app, including the
   checks that were spread through the apps' copies of these tests.
+- The push checks, merged: ``check-push`` (FCM and both Apple services;
+  ``check-push apple`` is Kanban's ``check-apple-push``), ``check-web-push``
+  and ``send-test-push``. They send through the app's own functions code,
+  which each app brings to the contract in README's "Push" when it migrates
+  (``docs/PLAN.md``, stage 3). ``check-web-push`` reads the scripts
+  ``index.html`` loads and requires the key to be a P-256 point.

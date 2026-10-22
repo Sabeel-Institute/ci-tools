@@ -36,9 +36,35 @@ root, the directory holding `ci-tools.json`.
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
+| `check-push [fcm\|apple]` | Against the real project: FCM and both Apple services accept a message from it, and refuse a token that cannot exist with an answer the functions prune on |
+| `check-web-push` | The exported web bundle carries a VAPID public key and the permission path |
+| `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
+
+## Push
+
+`check-push` and `send-test-push` build and send through the app's own
+functions code, run from source, so a probe or a test push is what a
+notification sends. An app provides:
+
+- `functions/src/fcm.ts`: `fcmMessage(message)`, the FCM message less its
+  token, and `DEAD_TOKEN_CODES`, the FCM error codes the functions prune on;
+- `functions/src/apns.ts`: `sendToApns(sends, credentials)`, each send a
+  `{ token, apnsEnvironment, message }`, answering
+  `{ delivered, dead, failed }`;
+- `functions/src/testPush.ts`: `testMessage(title, body, fields)`, the app's
+  message opening what the `key=value` fields name (`{}`: the app), or `null`
+  for a destination the app does not open;
+- `firebase-admin` installed for `functions/`, one project in `.firebaserc`,
+  and `APNS_KEY_ID` and `APPLE_TEAM_ID` in `functions/.env.<project>`.
+
+The three modules import nothing relative except types, so Node runs them as
+they are. Apple's key is Secret Manager's `APNS_KEY` for `check-push` and
+`~/.apns/AuthKey_<APNS_KEY_ID>.p8` for `send-test-push`, or for either the file
+`APNS_KEY_FILE` names; it is never printed. FCM authenticates as Application
+Default Credentials, or as `CHECK_ACCESS_TOKEN` when set.
 
 ## Changing ci-tools
 
