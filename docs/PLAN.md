@@ -33,11 +33,15 @@ differed only by accident.
    `install-maestro`, `ios-sim-build`, `screens-report`, `app/ci-sdk.mjs`; the
    workflows `android`, `android-publish`, `functions-deploy`, `premerge`,
    `web`, `web-deploy`; their tests, rewritten against templates and fixtures.
-2. **The drifted tools, merged.** `native-e2e` and `native.yml`; the iOS release
-   path (`build-ios.sh`, `check-ios-config`, `testflight-check`,
-   `load-build-env.sh`, `ios.yml`); the Android release path (`publish-play`,
-   Kanban's `build-aab.sh` gates); push checks (`check-push`, `check-web-push`,
-   `send-test-push`); `preflight-metro`, `check-version`, `gen-build-info`,
+2. **The drifted tools, merged.** Done: the iOS release path (`build-ios`,
+   `check-ios-config`, `testflight-check`, `scripts/lib/load-build-env.sh`,
+   `ios.yml`, `ci-platform prepare-ios` and `asc-key`), with the apps'
+   `releaseAccess` test as `check-app`'s and the templates'. To do:
+   `native-e2e` and `native.yml`; the Android release path (`publish-play`,
+   Kanban's `build-aab.sh` gates, which source the same
+   `load-build-env.sh`); push checks (`check-push`, `check-web-push`,
+   `send-test-push`); `preflight-metro`, `check-version` (then
+   `check-ios-config` takes Apple's version rule from it), `gen-build-info`,
    `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
    `test-emulator.sh`, `free-emulator-ports.sh`). Done: `ci.yml` and
    `codeql.yml`.
@@ -86,6 +90,11 @@ differed only by accident.
      (Kanban's form; TT's log is dated bullets, LMS has none);
    - the web push check under one name, so `ci-platform web` calls it instead
      of probing for `scripts/check-web-push.mjs`;
+
+   - the same build hooks under the same names (build info, version check, web
+     push check), so tools call npm scripts instead of probing for files;
+     `build-ios` already calls `npm run build-info` and `npm run
+     release-notes -- <version>` where `ci-tools.json` says the app has them;
    - one emulator port layout per base (+0 Firestore … +6 logging, then fixed
      offsets for storage, tasks, eventarc, web dev servers and the media
      store), declared once in `ci-tools.json`;
@@ -147,3 +156,10 @@ yet. Each comes back here with its template:
 - `ios.yml`: built on main pushes, TestFlight only on a manual run with
   `testflight`; release-build environment for both jobs; the owner check first.
 - `native.yml`, with `nativeE2e`; `releaseAccess` over every template.
+
+- `ci.yml`: the fail-closed `build-test` gate over every job, actionlint
+  1.7.12 checksum-pinned with shellcheck, the screens report on every sweep
+  (`if: always()`, kept as the `screens-report` artifact).
+- `codeql.yml`: `javascript-typescript`, `build-mode: none`, scheduled, no
+  secrets, no `pull_request_target`.
+- `native.yml`, with `nativeE2e`.

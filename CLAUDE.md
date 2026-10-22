@@ -22,7 +22,7 @@ fine.
 - **Scripts that run before `npm ci` use Node built-ins only,** and so does
   everything they import: `ci-platform` (with `build-aab`, `build-web` and
   theirs), `ci-play` (with `check-version`), `ci-hosting-smoke`, `ci-functions
-  require-ci`, `ci-premerge prepare`, `check-release`, the shell scripts. The
+  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`, the shell scripts. The
   release jobs never install the app's dependencies before verifying
   provenance, and the device check never installs them at all.
 - **The push tools run the app's own sender.** `check-push` and
@@ -36,6 +36,9 @@ fine.
   from main's pin.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
+- **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
+  and `ci-sdk.mjs` are imported.
 
 ## Tests
 

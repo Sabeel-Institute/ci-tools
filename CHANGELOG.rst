@@ -41,3 +41,15 @@ Unreleased
   ``ci-tools.json`` requires ``build.sentryDsnVariable``; ``check-app`` wants
   ``app/src/build-info.ts`` ignored and a deploy-log entry for the app's
   version.
+
+- The iOS release path, merged from the apps' drifted copies: ``build-ios``,
+  ``check-ios-config``, ``testflight-check``, the ``load-build-env`` loader
+  and the ``ios`` workflow template, with ``ci-platform prepare-ios`` and
+  ``asc-key`` for its secrets. ``build-ios`` never uploads; TestFlight takes
+  the workflow's build of the commit tagged ``v<version>``, with a build
+  number Apple has not taken. Like the Android build, it requires the
+  version's deploy-log entry, stamps the commit with ``build-info``, and
+  reads the native Sentry DSN variable from ``build.sentryDsnVariable``; an
+  app that plays with the phone locked sets ``ios.backgroundPlayback``.
+  ``check-app`` holds the release-access rules over every workflow an app
+  has and requires ``.gitignore`` to cover ``app/.env.sentry-build-plugin``.

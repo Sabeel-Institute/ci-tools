@@ -36,6 +36,10 @@ root, the directory holding `ci-tools.json`.
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
 | `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
 | `ci-platform <task>` | Signed release builds, through `build-aab` and `build-web`, and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
+
+| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, signing secrets read only inside the `release-build` environment and every release checking its owner first (in the app's own workflows too), identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
+| `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
+| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `prepare-ios`, `asc-key`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
@@ -48,6 +52,9 @@ root, the directory holding `ci-tools.json`.
 | `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
+| `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, Sentry DSN, privacy manifest |
+| `build-ios [--check]` | On a Mac: every gate, then archive and export a signed App Store `.ipa` to `build/ios/export`; never uploads. `--check` runs the gates and builds nothing |
+| `testflight-check <bundle-id> <version> <build> <commit>` | Before a TestFlight upload: the commit is the one tagged `v<version>` on GitHub, and App Store Connect has not taken the build number |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
 
 ## ci-tools.json
@@ -62,6 +69,8 @@ Every key is checked; an unknown or misspelt one fails every command.
 | `ci.knip` | Run `npm run knip` in CI |
 | `ci.ffmpeg` | ffmpeg on the test runners |
 | `ci.mediaStore` | SeaweedFS on the integration and browser runners (`WEED_BIN`) |
+| `build.sentryDsnVariable` | The `app/.env.local` variable carrying the native Sentry DSN; Android and iOS release builds refuse to run without it |
+| `ios.backgroundPlayback` | The app plays with the phone locked: `check-ios-config` requires expo-video's `supportsBackgroundPlayback` |
 
 Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when

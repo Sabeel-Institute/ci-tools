@@ -15,5 +15,8 @@
   },
   "build": {
     "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
+  },
+  "ios": {
+    "backgroundPlayback": true
   }
 }

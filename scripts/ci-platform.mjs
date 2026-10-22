@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, appendFileSync, lstatSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
@@ -63,6 +64,41 @@ function prepare(android) {
     }
     writePrivate('app/android/app/google-services.json', JSON.stringify(googleServices));
   }
+}
+
+// The iOS build job: app/.env.local as for the web, the build machine's values
+// (Sentry, Apple team, App Store Connect key ids) where `build-ios` loads them,
+// and, for an app that does not commit it, the iOS Firebase config. GitHub
+// masks a multi-line secret line by line ("NAME=value"), never the bare value,
+// so every value is masked on its own before anything can print it.
+function prepareIos() {
+  prepare(false);
+  const settings = required('IOS_BUILD_ENV');
+  maskEnvironment(settings);
+  writePrivate('app/.env.sentry-build-plugin', settings);
+  if (process.env.GOOGLE_SERVICE_INFO_PLIST) {
+    const plist = Buffer.from(process.env.GOOGLE_SERVICE_INFO_PLIST, 'base64').toString('utf8');
+    const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
+    if (/<key>BUNDLE_ID<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)?.[1] !== app.ios.bundleIdentifier) {
+      throw new Error('iOS Firebase configuration has the wrong bundle id');
+    }
+    writePrivate('app/GoogleService-Info.plist', plist);
+  }
+}
+
+// The TestFlight job: the App Store Connect key where Apple's tools and
+// testflight-check look for it, and its ids in the job's environment.
+function appStoreKey() {
+  const settings = required('IOS_BUILD_ENV');
+  maskEnvironment(settings);
+  const { ASC_KEY_ID: id, ASC_ISSUER_ID: issuer } = parseEnv(settings);
+  if (!/^[A-Z0-9]+$/.test(id ?? '') || !/^[0-9a-f-]{36}$/i.test(issuer ?? '')) {
+    throw new Error('IOS_BUILD_ENV must set ASC_KEY_ID (the key id) and ASC_ISSUER_ID (a UUID)');
+  }
+  const key = required('ASC_KEY_P8');
+  if (!key.includes('-----BEGIN PRIVATE KEY-----')) throw new Error('ASC_KEY_P8 is not a .p8 private key');
+  writePrivate(join(homedir(), '.appstoreconnect/private_keys', `AuthKey_${id}.p8`), key.trimEnd() + '\n');
+  appendFileSync(required('GITHUB_ENV'), `ASC_KEY_ID=${id}\nASC_ISSUER_ID=${issuer}\n`);
 }
 
 export function treeHashes(directory) {
@@ -188,6 +224,8 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   const task = process.argv[2];
   if (task === 'prepare-web') prepare(false);
   else if (task === 'prepare-android') prepare(true);
+  else if (task === 'prepare-ios') prepareIos();
+  else if (task === 'asc-key') appStoreKey();
   else if (task === 'android') android();
   else if (task === 'web') web();
   else if (task === 'resolve-build') resolveBuild();

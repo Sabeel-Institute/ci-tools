@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
 import { BUILD_INFO } from './build-info.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
+import { releaseAccessProblems } from './lib/release-access.mjs';
 import { drift } from './workflows.mjs';
 
 /**
@@ -19,7 +20,7 @@ import { drift } from './workflows.mjs';
  */
 
 /** Files the CI scripts write from secrets; Git must never pick them up. */
-export const PRIVATE_FILES = ['app/.env.local', 'app/android/keystore.properties'];
+export const PRIVATE_FILES = ['app/.env.local', 'app/.env.sentry-build-plugin', 'app/android/keystore.properties'];
 
 /** Files every build writes; unless Git ignores them, each build is marked as built from uncommitted changes. */
 export const GENERATED_FILES = [BUILD_INFO];
@@ -46,6 +47,11 @@ export function problems(root = '.') {
   attempt(() => PRIVATE_FILES.filter((path) => !ignored(path)).map((path) => `.gitignore does not cover ${path}, which CI writes from a secret`));
   attempt(() => GENERATED_FILES.filter((path) => !ignored(path))
     .map((path) => `.gitignore does not cover ${path}, which every build writes, so each build is marked as built from uncommitted changes`));
+  attempt(() => {
+    const directory = resolve(root, '.github/workflows');
+    return releaseAccessProblems(readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))
+      .map((name) => [name, readFileSync(join(directory, name), 'utf8')]));
+  });
   attempt(() => {
     const app = JSON.parse(readFileSync(resolve(root, 'app/app.json'), 'utf8')).expo;
     firebaseFixtures(app);

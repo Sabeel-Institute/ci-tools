@@ -26,7 +26,7 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\napp/android/keystore.properties\napp/src/build-info.ts\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\n');
   put('app/app.json', { expo: { version: '0.2.0', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.0\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
@@ -59,6 +59,8 @@ describe('ci-tools.json', () => {
     expect(() => validate({ ...minimal, build: {} })).toThrow(/build\.sentryDsnVariable is required/);
     expect(() => validate({ ...minimal, build: { ...minimal.build, sentryDsn: 'x' } })).toThrow(/unknown key build\.sentryDsn;/);
     expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/build\.sentryDsnVariable has an invalid value/);
+    expect(() => validate({ ...minimal, ios: { backgroundPlayback: 'yes' } })).toThrow(/ios\.backgroundPlayback has an invalid value/);
+    expect(() => validate({ ...minimal, ios: { releaseNotes: true } })).toThrow(/unknown key ios\.releaseNotes/);
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
@@ -151,7 +153,7 @@ describe('check-app', () => {
 
   it('reports a secret or stamp Git would pick up, bad identifiers, unrecorded release and stale functions lock', () => {
     const { root, put } = app();
-    put('.gitignore', '.env.local\n');
+    put('.gitignore', '.env.local\n.env.sentry-build-plugin\n');
     put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
@@ -162,5 +164,11 @@ describe('check-app', () => {
     expect(found[3]).toMatch(/no deploy-log entry for v0\.3\.0/);
     expect(found[4]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it('reports a signing secret read outside release-build, in the app\'s own workflows too', () => {
+    const { root, put } = app();
+    put('.github/workflows/app-only.yml', 'on: push\njobs:\n  test:\n    steps:\n      - run: x\n        env:\n          K: ${{ secrets.ASC_KEY_P8 }}\n');
+    expect(problems(root)).toEqual(['app-only.yml job test reads ASC_KEY_P8 without entering the release-build environment']);
   });
 });
