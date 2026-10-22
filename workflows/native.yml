@@ -9,6 +9,7 @@ on:
       - maestro/**
       - {{ci-tools.native.seed}}
       - ci-tools.json
+      - package-lock.json
       - .github/workflows/native.yml
   workflow_dispatch:
 

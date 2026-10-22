@@ -42,6 +42,7 @@ describe('the native flows', () => {
     expect(workflow).toContain('runs-on: macos-');
     expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios\n/);
     expect(workflow).toContain(`- ${full.native.seed}\n`);
+    expect(workflow).toContain('- package-lock.json\n');
   });
 
   it('start the web dev server and the media tools only for an app that needs them', () => {
