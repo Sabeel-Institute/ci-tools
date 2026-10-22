@@ -10,6 +10,7 @@ import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
 import { SECRET_LOCAL } from './lib/firebase-emulators.mjs';
 import { releaseAccessProblems } from './lib/release-access.mjs';
+import { DSN_VARIABLES, sentryGradleProblem } from './lib/sentry.mjs';
 import { versionedFileProblems } from './release.mjs';
 import { drift } from './workflows.mjs';
 
@@ -40,13 +41,13 @@ const ABANDONED = new Set([8080, 9150, 9099, 5001, 9199, 9299, 9499, 4000, 4400,
 
 const readIf = (root, path) => (existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined);
 
-/** The files a stated port or emulator project would hide in. */
+/** The source files under `directory`: where a stated port or emulator project would hide, or a DSN be read. */
 function scriptFiles(root, directory = 'scripts') {
   if (!existsSync(join(root, directory))) return [];
   return readdirSync(join(root, directory), { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : scriptFiles(root, path);
-    return /\.(mjs|cjs|js|ts|sh)$/.test(entry.name) ? [path] : [];
+    return /\.(mjs|cjs|js|tsx?|sh)$/.test(entry.name) ? [path] : [];
   });
 }
 
@@ -210,7 +211,28 @@ export function problems(root = '.') {
     }
     const others = [...new Set(gradle.match(/\b(?!SABEEL_KEYSTORE_PROPERTIES\b)\w+_KEYSTORE_PROPERTIES\b/g) ?? [])];
     if (others.length) found.push(`app/android/app/build.gradle names ${others.join(', ')}; the variable is SABEEL_KEYSTORE_PROPERTIES`);
+    const sentry = sentryGradleProblem(gradle);
+    if (sentry) found.push(sentry);
     return found;
+  });
+  attempt(() => {
+    // The bundles carry debug ids, which match a crash to its source map with
+    // no release name to keep in step; Sentry's Metro config adds them.
+    const metro = readIf(root, 'app/metro.config.js') ?? '';
+    return /require\(\s*['"]@sentry\/react-native\/metro['"]\s*\)/.test(metro) && /\bgetSentryExpoConfig\s*\(/.test(metro) ? []
+      : ['app/metro.config.js does not build on getSentryExpoConfig from @sentry/react-native/metro, so its bundles carry no debug ids for Sentry to match their source maps by'];
+  });
+  attempt(() => {
+    // The release builds check app/.env.local for these two names, so the app
+    // must read its DSNs from them and no other.
+    const sources = scriptFiles(root, 'app/src').filter((path) => !/\.test\.[cm]?[jt]sx?$/.test(path));
+    const read = new Set(sources.flatMap((path) => [...readFileSync(join(root, path), 'utf8').matchAll(/\bEXPO_PUBLIC_SENTRY_DSN\w*/g)].map((match) => match[0])));
+    const fixed = Object.values(DSN_VARIABLES);
+    return [
+      ...[...read].filter((name) => !fixed.includes(name)).sort()
+        .map((name) => `app/src reads ${name}; the Sentry DSNs are ${fixed.join(' (Android and iOS) and ')} (web)`),
+      ...fixed.filter((name) => !read.has(name)).map((name) => `app/src never reads ${name}, which the release builds require in app/.env.local`),
+    ];
   });
   attempt(() => {
     // ci-tools' Dependabot moves the actions in the templates; one here would

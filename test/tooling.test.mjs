@@ -8,12 +8,15 @@ import { config, findRoot, validate } from '../lib/config.mjs';
 import { portProblems, problems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
 import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
+import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
-/** How build.gradle finds the release key: the one variable ci-platform sets. */
-const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n";
+/** How build.gradle finds the release key, the one variable ci-platform sets, and applies Sentry's upload. */
+const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
+  + SENTRY_GRADLE;
+const METRO = "const { getSentryExpoConfig } = require('@sentry/react-native/metro');\nmodule.exports = getSentryExpoConfig(__dirname);\n";
 const fixtures = [];
 
 afterEach(() => {
@@ -55,6 +58,9 @@ function app() {
   put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('app/metro.config.js', METRO);
+  put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_NATIVE;\n');
+  put('app/src/sentry.web.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_WEB;\n');
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
@@ -88,11 +94,15 @@ describe('ci-tools.json', () => {
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, mediaStroe: true } })).toThrow(/unknown key ci\.mediaStroe/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, browserSuites: ['test:e2e'] } })).toThrow(/ci\.browserSuites/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, emulatorSecrets: { SENTRY_DSN: "it's" } } })).toThrow(/ci\.emulatorSecrets/);
-    const { build: _build, ...buildless } = minimal;
-    expect(() => validate(buildless)).toThrow(/build is required/);
-    expect(() => validate({ ...minimal, build: {} })).toThrow(/build\.sentryDsnVariable is required/);
-    expect(() => validate({ ...minimal, build: { ...minimal.build, sentryDsn: 'x' } })).toThrow(/unknown key build\.sentryDsn;/);
-    expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/build\.sentryDsnVariable has an invalid value/);
+    const { sentry: _sentry, ...sentryless } = minimal;
+    expect(() => validate(sentryless)).toThrow(/sentry is required/);
+    expect(() => validate({ ...minimal, sentry: { org: 'example-org' } })).toThrow(/sentry\.projects is required/);
+    expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, projects: { native: 'n', web: 'w' } } })).toThrow(/sentry\.projects\.functions is required/);
+    expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, projects: { ...minimal.sentry.projects, ios: 'i' } } })).toThrow(/unknown key sentry\.projects\.ios;/);
+    for (const org of ['Example', 'has space', '-lead', '', 'a'.repeat(51)]) {
+      expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, org } }), org).toThrow(/sentry\.org has an invalid value/);
+    }
+    expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'EXPO_PUBLIC_SENTRY_DSN' } })).toThrow(/unknown key build;/);
     expect(() => validate({ ...minimal, ios: { backgroundPlayback: 'yes' } })).toThrow(/ios\.backgroundPlayback has an invalid value/);
     expect(() => validate({ ...minimal, ios: { releaseNotes: true } })).toThrow(/unknown key ios\.releaseNotes/);
     for (const certificate of ['ab:'.repeat(31) + 'ab', 'AB'.repeat(32), 'AB:'.repeat(30) + 'AB']) {
@@ -262,6 +272,37 @@ describe('check-app', () => {
     expect(found[4]).toMatch(/no deploy-log entry for v0\.3\.0/);
     expect(found[5]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it('reports a build.gradle that applies sentry.gradle other than exactly when the build machine\'s file exists', () => {
+    const { root, put } = app();
+    const message = /^app\/android\/app\/build\.gradle must apply sentry\.gradle exactly when app\/\.env\.sentry-build-plugin exists/;
+    const versions = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    const withSentry = (block) => SIGNING.replace(SENTRY_GRADLE, block) + versions;
+    for (const block of [
+      '',
+      SENTRY_GRADLE.replace('$projectRoot/.env.sentry-build-plugin', '${rootProject.projectDir}/sentry.properties'),
+      SENTRY_GRADLE.replace('file("$projectRoot/.env.sentry-build-plugin").exists()', 'System.getenv("SENTRY_AUTH_TOKEN")'),
+      SENTRY_GRADLE.replace('.exists()) {', '.exists() || System.getenv("SENTRY_AUTH_TOKEN")) {'),
+      SENTRY_GRADLE + 'apply from: "../sentry.gradle"\n',
+    ]) {
+      put('app/android/app/build.gradle', withSentry(block));
+      expect(problems(root), block).toEqual([expect.stringMatching(message)]);
+    }
+    put('app/android/app/build.gradle', withSentry(SENTRY_GRADLE.replace('{\n', '{\n\n') + '} else {\n    logger.warn("no upload")\n}\n'));
+    expect(problems(root)).toEqual([]);
+  });
+
+  it('reports bundles without debug ids, and Sentry DSNs read under other names', () => {
+    const { root, put } = app();
+    put('app/metro.config.js', "const { getDefaultConfig } = require('expo/metro-config');\nmodule.exports = getDefaultConfig(__dirname);\n");
+    put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_ANDROID;\n');
+    put('app/src/sentry.test.ts', 'process.env.EXPO_PUBLIC_SENTRY_DSN = "x";\n');
+    expect(problems(root)).toEqual([
+      'app/metro.config.js does not build on getSentryExpoConfig from @sentry/react-native/metro, so its bundles carry no debug ids for Sentry to match their source maps by',
+      'app/src reads EXPO_PUBLIC_SENTRY_DSN_ANDROID; the Sentry DSNs are EXPO_PUBLIC_SENTRY_DSN_NATIVE (Android and iOS) and EXPO_PUBLIC_SENTRY_DSN_WEB (web)',
+      'app/src never reads EXPO_PUBLIC_SENTRY_DSN_NATIVE, which the release builds require in app/.env.local',
+    ]);
   });
 
   it("reports the emulators' secrets file committed", () => {

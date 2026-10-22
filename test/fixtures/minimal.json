@@ -6,8 +6,13 @@
     ],
     "emulatorSecrets": {}
   },
-  "build": {
-    "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
+  "sentry": {
+    "org": "example-org",
+    "projects": {
+      "native": "example-native",
+      "web": "example-web",
+      "functions": "example-functions"
+    }
   },
   "emulators": {
     "base": 61900

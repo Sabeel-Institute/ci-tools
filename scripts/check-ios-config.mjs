@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
 import { versionProblems } from '../lib/version.mjs';
+import { dsnProblem } from './lib/sentry.mjs';
 
 /**
  * The iOS configuration, spread across files that must agree.
@@ -16,8 +17,8 @@ import { versionProblems } from '../lib/version.mjs';
  * that caused it succeeded.
  *
  * Problems fail it. Warnings are for what is wrong only on the machine that
- * archives: the check runs from any checkout, but a missing Sentry token there
- * skips the symbol upload without failing the build, so it cannot be silent.
+ * archives: the check runs from any checkout, and `build-ios` refuses to
+ * archive without the Sentry token.
  */
 
 /** <key>NAME</key><string>VALUE</string> pairs; the file is a flat dictionary. */
@@ -110,14 +111,13 @@ export function iosConfigProblems(root = '.', env = process.env) {
     }
   }
 
-  // 5. Sentry, which makes an iOS crash readable. Bare, because the
-  //    repository is public: given organization and project the plugin writes
-  //    them into ios/sentry.properties, and an authToken option would be
-  //    written into the app package. Bare, all three come from the build
-  //    environment (app/.env.sentry-build-plugin). Both spellings are the same
-  //    plugin.
+  // 5. Sentry, which makes an iOS crash readable. Bare, because an authToken
+  //    option would be written into the app package, and the org and project
+  //    are ci-tools.json's: build-ios exports SENTRY_ORG and SENTRY_PROJECT
+  //    from it, and SENTRY_AUTH_TOKEN comes from the build environment
+  //    (app/.env.sentry-build-plugin). Both spellings are the same plugin.
   bare(['@sentry/react-native', '@sentry/react-native/expo'], {
-    options: 'Register it bare; SENTRY_ORG, SENTRY_PROJECT and SENTRY_AUTH_TOKEN come from the build environment.',
+    options: "Register it bare; build-ios gives it ci-tools.json's org and project, and the token from the build environment.",
     missing: 'No dSYM or source-map upload is wired, so iOS crashes arrive as raw addresses.',
   });
 
@@ -191,26 +191,15 @@ export function iosConfigProblems(root = '.', env = process.env) {
 
   // 12. Crash reporting ON. app/.env.local is gitignored, so a fresh clone has
   //     no DSN, and the build that results looks identical and reports nothing.
-  const variable = settings.build.sentryDsnVariable;
-  const local = existsSync(join(root, 'app/.env.local')) ? read('app/.env.local') : '';
-  const dsn = new RegExp(`^\\s*${variable}\\s*=\\s*["']?([^\\s"']+)`, 'm').exec(local)?.[1];
-  if (!dsn) {
-    fail(
-      `app/.env.local has no ${variable}, so the build would ship with crash reporting OFF.\n`
-        + '    It is gitignored: copy it from another machine. On GitHub it comes from the APP_ENV_LOCAL secret.',
-    );
-  } else if (!/^https:\/\/[^@]+@/.test(dsn)) {
-    fail(`${variable} does not look like a Sentry DSN ("${dsn.slice(0, 12)}...").`);
-  }
+  const dsn = dsnProblem('native', root);
+  if (dsn) fail(dsn);
 
-  // 13. The Sentry build variables, needed only where the archive is made.
-  const missing = ['SENTRY_ORG', 'SENTRY_PROJECT', 'SENTRY_AUTH_TOKEN'].filter((name) => !env[name]);
-  if (missing.length) {
+  // 13. The Sentry token, needed only where the archive is made.
+  if (!env.SENTRY_AUTH_TOKEN) {
     warnings.push(
-      `${missing.join(', ')} not set in this shell. Harmless anywhere but the machine that\n`
-        + '    archives; there the build succeeds and uploads no dSYMs or source maps.\n'
-        + '    sabeel-ci build-ios loads them from app/.env.sentry-build-plugin. The token is a\n'
-        + '    Sentry organization token (scope org:ci), and a real secret.',
+      'SENTRY_AUTH_TOKEN not set in this shell. Harmless anywhere but the machine that\n'
+        + '    archives, where build-ios loads it from app/.env.sentry-build-plugin and refuses\n'
+        + '    to build without it. It is a Sentry organization token (scope org:ci), and a real secret.',
     );
   }
 

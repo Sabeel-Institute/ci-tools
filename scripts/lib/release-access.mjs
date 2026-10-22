@@ -13,10 +13,16 @@
  * has, its own included, by `sabeel-ci check-app`.
  */
 export const SIGNING = ['APP_ENV_LOCAL', 'ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PROPERTIES', 'ANDROID_GOOGLE_SERVICES_JSON',
-  'IOS_BUILD_ENV', 'IOS_DIST_P12', 'IOS_DIST_P12_PASSWORD', 'IOS_PROFILE', 'ASC_KEY_P8', 'GOOGLE_SERVICE_INFO_PLIST'];
+  'BUILD_ENV', 'IOS_DIST_P12', 'IOS_DIST_P12_PASSWORD', 'IOS_PROFILE', 'ASC_KEY_P8', 'GOOGLE_SERVICE_INFO_PLIST'];
 
-/** Each publishing workflow, and the job in it that publishes. */
-export const RELEASES = { 'web-deploy.yml': 'deploy', 'android-publish.yml': 'publish', 'functions-deploy.yml': 'deploy', 'ios.yml': 'testflight' };
+/**
+ * Each publishing workflow, and the jobs in it that release: each starts by
+ * checking the owner. Deploy Web uploads the build's source maps to Sentry
+ * with a build secret before it publishes the site.
+ */
+export const RELEASES = {
+  'web-deploy.yml': ['sourcemaps', 'deploy'], 'android-publish.yml': ['publish'], 'functions-deploy.yml': ['deploy'], 'ios.yml': ['testflight'],
+};
 
 /** A workflow's jobs, by name, each the text from its key to the next job's. */
 export function jobs(text) {
@@ -42,12 +48,14 @@ export function releaseAccessProblems(workflows) {
         problems.push(`${file} job ${job} reads ${uses.join(', ')} without entering the release-build environment`);
       }
     }
-    if (RELEASES[file]) {
-      const body = jobs(text)[RELEASES[file]] ?? '';
-      if (!/^ {4}steps:\n {6}- name: Only the owner releases\n/m.test(body)
+    for (const job of RELEASES[file] ?? []) {
+      const body = jobs(text)[job];
+      if (body === undefined) {
+        problems.push(`${file} has no job ${job}, a release job that starts by checking that the owner started it`);
+      } else if (!/^ {4}steps:\n {6}- name: Only the owner releases\n/m.test(body)
         || !body.includes('OWNER_ID: ${{ vars.RELEASE_OWNER_ID }}')
         || !body.includes('TRIGGERING_ACTOR: ${{ github.triggering_actor }}')) {
-        problems.push(`${file} job ${RELEASES[file]} does not start by checking that the owner started it`);
+        problems.push(`${file} job ${job} does not start by checking that the owner started it`);
       }
     }
   }

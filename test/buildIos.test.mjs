@@ -116,7 +116,7 @@ ${body}\n`, { mode: 0o755 });
   git('commit', '--quiet', '-m', 'app');
   const env = {
     PATH: `${join(root, 'stubs')}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: join(root, 'home'), STUB_LOG: join(root, 'npm.log'),
-    IOS_TEAM_ID: 'TEAM123456', SENTRY_ORG: 'o', SENTRY_PROJECT: 'example-ios', SENTRY_AUTH_TOKEN: 't',
+    IOS_TEAM_ID: 'TEAM123456', SENTRY_AUTH_TOKEN: 't',
   };
   const run = (extra = {}, ...args) => spawnSync(process.execPath, [bin, 'build-ios', ...args], { cwd: root, encoding: 'utf8', env: { ...env, ...extra } });
   const npm = () => (existsSync(env.STUB_LOG) ? readFileSync(env.STUB_LOG, 'utf8') : '');
@@ -163,7 +163,7 @@ describe('build-ios', () => {
     expect(result.stderr).toMatch(/^note: no codesigning identity in the keychain; automatic signing mints/);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`iOS config ok (${BUNDLE_ID}, v1.2.3 build 3)`);
-    expect(result.stdout).toContain(`app          Example (${BUNDLE_ID})\nversion      1.2.3  (build 3, commit ${commit})\nteam         TEAM123456\nsigning      automatic\nsymbols      example-ios\n`);
+    expect(result.stdout).toContain(`app          Example (${BUNDLE_ID})\nversion      1.2.3  (build 3, commit ${commit})\nteam         TEAM123456\nsigning      automatic\nsymbols      example-org/example-native\n`);
     expect(result.stdout).toMatch(/--check: every gate passed; nothing was built\.\n$/);
     expect(npm()).toBe('');
   });
@@ -194,22 +194,24 @@ describe('build-ios', () => {
     expect(result.stderr).toMatch(message);
   });
 
-  it('takes the build machine\'s values from app/.env.sentry-build-plugin, the shell winning', () => {
+  it("takes the build machine's values from app/.env.sentry-build-plugin, the shell winning, and Sentry's from ci-tools.json", () => {
     const { run, put } = mac();
-    put('app/.env.sentry-build-plugin', 'IOS_TEAM_ID=FILE123456\nSENTRY_PROJECT=from-file\n');
-    const result = run({ IOS_TEAM_ID: '', SENTRY_PROJECT: 'from-shell' }, '--check');
+    put('app/.env.sentry-build-plugin', 'IOS_TEAM_ID=FILE123456\nSENTRY_AUTH_TOKEN=from-file\nSENTRY_PROJECT=from-file\n');
+    const result = run({ IOS_TEAM_ID: '', SENTRY_AUTH_TOKEN: '', SENTRY_ORG: 'from-shell' }, '--check');
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/team {9}FILE123456\nsigning {6}automatic\nsymbols {6}from-shell\n/);
+    expect(result.stdout).toMatch(/team {9}FILE123456\nsigning {6}automatic\nsymbols {6}example-org\/example-native\n/);
   });
 
-  it('warns of a build that maps to no commit, and of one that uploads no symbols', () => {
+  it('warns of a build that maps to no commit, and refuses one that would upload no symbols', () => {
     const { root, run, put, commit } = mac();
     put('app/android/app/build.gradle', readFileSync(join(root, 'app/android/app/build.gradle'), 'utf8') + '// edited\n');
-    const result = run({ SENTRY_AUTH_TOKEN: '' }, '--check');
+    const result = run({}, '--check');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`commit ${commit}+)`);
     expect(result.stderr).toContain(`WARNING: uncommitted changes; this build is stamped ${commit}+ and maps to no commit.`);
-    expect(result.stderr).toContain('WARNING: SENTRY_AUTH_TOKEN not set: this build uploads no debug symbols');
+    const tokenless = run({ SENTRY_AUTH_TOKEN: '' }, '--check');
+    expect(tokenless.status).toBe(1);
+    expect(tokenless.stderr).toMatch(/^SENTRY_AUTH_TOKEN is not set: this build would upload no debug symbols or source maps/m);
   });
 
   it('builds and exports an .ipa, uploading nothing, signed automatically on a Mac', () => {

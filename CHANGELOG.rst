@@ -4,6 +4,23 @@ Changelog
 Unreleased
 ----------
 
+- Sentry, one way in every app. The DSNs are always
+  ``EXPO_PUBLIC_SENTRY_DSN_NATIVE`` and ``EXPO_PUBLIC_SENTRY_DSN_WEB``;
+  ``build.sentryDsnVariable`` (and the ``build`` section) is gone. The org and
+  project slugs live in ``ci-tools.json``'s new, required ``sentry`` section.
+  The build secret ``IOS_BUILD_ENV`` is renamed ``BUILD_ENV``, holds
+  ``SENTRY_AUTH_TOKEN`` and the App Store Connect ids, and is written to
+  ``app/.env.sentry-build-plugin`` by the Android build too.
+  ``build-aab`` refuses a release without the native DSN, the token or
+  ``build.gradle``'s ``sentry.gradle`` gate, and runs Gradle with the org and
+  native project; ``build-ios`` refuses one without the token.
+  ``ci-platform web`` requires the web DSN and debug ids in every script and
+  keeps the source maps beside the site; Deploy Web uploads them from a new
+  ``sourcemaps`` job in ``release-build`` before it publishes, with a
+  checksum-pinned ``sentry-cli``. ``check-app`` requires the gradle gate,
+  ``getSentryExpoConfig`` in ``app/metro.config.js`` and the two DSN names
+  in ``app/src``. Release access names the publishing jobs per workflow, and
+  Deploy Web's ``sourcemaps`` starts with the owner check too.
 - ``functions/.secret.local`` comes from ``ci.emulatorSecrets`` alone:
   ``emulators`` and ``test-emulator`` write it on every run, and the new
   ``emulator-secrets`` writes it for a stack the app starts itself (CI's

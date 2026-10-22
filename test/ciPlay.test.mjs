@@ -8,6 +8,7 @@ import { assertManifest } from '../scripts/ci-play.mjs';
 import { checkPlayAccess } from '../scripts/publish-play.mjs';
 import { androidIdentity } from '../lib/version.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
 const root = resolve(import.meta.dirname, '..');
@@ -15,7 +16,7 @@ const script = join(root, 'scripts/ci-play.mjs');
 const commit = 'c'.repeat(40);
 const certificate = 'ab'.repeat(32);
 const app = { version: '0.2.0', android: { package: 'com.test.app' } };
-const gradle = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+const gradle = SENTRY_GRADLE + '        versionCode computedVersionCode\n        versionName expoVersion\n';
 const manifest = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.test.app" android:versionCode="2000" android:versionName="0.2.0"/>';
 const fixtures = [];
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
@@ -46,6 +47,7 @@ function fixture() {
   put('ci-tools.json', JSON.stringify(full));
   put('docs/PHASE_STATUS.md', '### 2026-10-21 — Fixture — v0.2.0\n');
   put('app/.env.local', 'EXPO_PUBLIC_SENTRY_DSN_NATIVE=https://key@sentry.example.test/1\n');
+  put('app/.env.sentry-build-plugin', 'SENTRY_AUTH_TOKEN=fixture-token\n');
   tool('git', 'process.stdout.write(process.argv.includes("--short") ? "' + commit.slice(0, 7) + '" : "' + commit + '");');
   tool('jarsigner', 'if (process.argv.includes("-certs")) process.stdout.write(\'- Signed by "CN=Sabeel Institute"\\n\');\nprocess.exit(process.env.BAD_SIGNATURE ? 1 : 0);');
   tool('keytool', 'process.stdout.write("SHA256: " + (process.env.FAKE_CERT || "' + certificate + '"));');

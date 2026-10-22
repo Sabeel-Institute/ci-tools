@@ -39,6 +39,11 @@ fine.
 - **Releases go through pull requests.** `release` pushes only
   `release/v<version>` and opens its pull request; the owner merges it, and
   `release --ship`, run by the owner, creates the tag with the GitHub release.
+- **Secrets are read only inside the `release-build` environment**
+  (`scripts/lib/release-access.mjs`, held over the templates by the tests and
+  over every app workflow by `check-app`), Deploy Web's Sentry upload
+  included. Sentry's org and projects are public and live in `ci-tools.json`;
+  its token travels in `BUILD_ENV`, never on a command line.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch

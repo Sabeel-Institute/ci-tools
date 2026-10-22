@@ -5,13 +5,14 @@
 #   . "$CI_TOOLS/scripts/lib/load-build-env.sh"
 #
 # A release build needs values that are not the app's and must never be
-# committed: the Sentry org, project and auth token for the symbol upload, the
-# Apple team id, and the App Store Connect key id and issuer. xcodebuild and
-# the Sentry build phase read the process environment; neither reads
-# app/.env.local, which is Expo's, for inlining EXPO_PUBLIC_* into the bundle.
-# One gitignored file instead of shell exports survives a new terminal and
-# stays out of shell history. On GitHub it is written from the IOS_BUILD_ENV
-# secret (sabeel-ci ci-platform prepare-ios).
+# committed: the Sentry auth token for the symbol upload, the Apple team id,
+# and the App Store Connect key id and issuer. xcodebuild and the Sentry build
+# phase read the process environment; neither reads app/.env.local, which is
+# Expo's, for inlining EXPO_PUBLIC_* into the bundle. One gitignored file
+# instead of shell exports survives a new terminal and stays out of shell
+# history. On GitHub it is written from the BUILD_ENV secret (sabeel-ci
+# ci-platform prepare-ios, and prepare-android, whose sentry.gradle reads the
+# token from it too). The Sentry org and project are ci-tools.json's.
 #
 # Parsed rather than sourced: a dotenv file is not shell, and sourcing one runs
 # whatever is in it. Comments and blank lines are skipped, a value keeps any

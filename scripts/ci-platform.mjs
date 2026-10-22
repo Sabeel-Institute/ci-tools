@@ -9,6 +9,7 @@ import { config } from '../lib/config.mjs';
 import { buildAab } from './build-aab.mjs';
 import { WEB_EXPORT, buildWeb, exportedScripts } from './build-web.mjs';
 import { checkWebPush } from './check-web-push.mjs';
+import { BUILD_ENV_FILE, debugIdProblems, dsnProblem } from './lib/sentry.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { maxBuffer: 64 * 1024 * 1024, ...options });
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -33,6 +34,17 @@ function writePrivate(path, value) {
   writeFileSync(path, value, { mode: 0o600 });
 }
 
+// The build machine's values (the Sentry token; for iOS the Apple team and
+// App Store Connect key ids) where sentry.gradle, the Xcode build and
+// `build-ios` read them. GitHub masks a multi-line secret line by line
+// ("NAME=value"), never the bare value, so every value is masked on its own
+// before anything can print it.
+function writeBuildEnv() {
+  const settings = required('BUILD_ENV');
+  maskEnvironment(settings);
+  writePrivate(BUILD_ENV_FILE, settings);
+}
+
 function prepare(android) {
   const env = required('APP_ENV_LOCAL');
   maskEnvironment(env);
@@ -44,6 +56,7 @@ function prepare(android) {
     }
   }
   if (!android) return;
+  writeBuildEnv();
   const settings = required('ANDROID_KEYSTORE_PROPERTIES');
   maskEnvironment(settings);
   const keystore = join(required('RUNNER_TEMP'), 'android-signing.keystore');
@@ -67,16 +80,11 @@ function prepare(android) {
   }
 }
 
-// The iOS build job: app/.env.local as for the web, the build machine's values
-// (Sentry, Apple team, App Store Connect key ids) where `build-ios` loads them,
-// and, for an app that does not commit it, the iOS Firebase config. GitHub
-// masks a multi-line secret line by line ("NAME=value"), never the bare value,
-// so every value is masked on its own before anything can print it.
+// The iOS build job: app/.env.local as for the web, the build machine's values,
+// and, for an app that does not commit it, the iOS Firebase config.
 function prepareIos() {
   prepare(false);
-  const settings = required('IOS_BUILD_ENV');
-  maskEnvironment(settings);
-  writePrivate('app/.env.sentry-build-plugin', settings);
+  writeBuildEnv();
   if (process.env.GOOGLE_SERVICE_INFO_PLIST) {
     const plist = Buffer.from(process.env.GOOGLE_SERVICE_INFO_PLIST, 'base64').toString('utf8');
     const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
@@ -90,11 +98,11 @@ function prepareIos() {
 // The TestFlight job: the App Store Connect key where Apple's tools and
 // testflight-check look for it, and its ids in the job's environment.
 function appStoreKey() {
-  const settings = required('IOS_BUILD_ENV');
+  const settings = required('BUILD_ENV');
   maskEnvironment(settings);
   const { ASC_KEY_ID: id, ASC_ISSUER_ID: issuer } = parseEnv(settings);
   if (!/^[A-Z0-9]+$/.test(id ?? '') || !/^[0-9a-f-]{36}$/i.test(issuer ?? '')) {
-    throw new Error('IOS_BUILD_ENV must set ASC_KEY_ID (the key id) and ASC_ISSUER_ID (a UUID)');
+    throw new Error('BUILD_ENV must set ASC_KEY_ID (the key id) and ASC_ISSUER_ID (a UUID)');
   }
   const key = required('ASC_KEY_P8');
   if (!key.includes('-----BEGIN PRIVATE KEY-----')) throw new Error('ASC_KEY_P8 is not a .p8 private key');
@@ -149,23 +157,37 @@ function android() {
   record('android', artifact, { sha256: sha256(readFileSync(bundle)), signingCertificate: fingerprint, bytes: statSync(bundle).size });
 }
 
+// The web release: built with source maps, whose debug ids must match the
+// scripts' and reach the Sentry SDK. The site Hosting serves holds no map;
+// the maps and their scripts sit beside it in the artifact, for Deploy Web to
+// upload to Sentry when it publishes the site.
 function web() {
+  const dsn = dsnProblem('web');
+  if (dsn) throw new Error(`not building the web release:\n  - ${dsn}`);
   const commit = command('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
-  buildWeb();
+  buildWeb({ sourceMaps: true });
   const source = resolve(WEB_EXPORT);
   console.log(checkWebPush(source));
+  const ids = debugIdProblems(source);
+  if (ids.length) throw new Error(`the web export cannot be read in Sentry:\n${ids.map((problem) => `  - ${problem}`).join('\n')}`);
   const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
-  const hashes = treeHashes(source);
-  if (!hashes['index.html'] || Object.keys(hashes).some((path) => /\.map$|(^|\/)\.env/.test(path))) {
+  const all = Object.keys(treeHashes(source));
+  const maps = all.filter((path) => path.endsWith('.map'));
+  const copy = (paths, to) => {
+    for (const path of paths) {
+      const target = join(artifact, to, path);
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(join(source, path), target);
+    }
+  };
+  copy(all.filter((path) => !path.endsWith('.map')), 'site');
+  copy([...maps, ...maps.map((path) => path.slice(0, -'.map'.length))], 'sourcemaps');
+  const files = treeHashes(join(artifact, 'site'));
+  if (!files['index.html'] || Object.keys(files).some((path) => /\.map$|(^|\/)\.env/.test(path))) {
     throw new Error('Web artifact must contain index.html and no source maps or environment files');
   }
   assertCommit(exportedScripts().map((path) => readFileSync(path)), commit, 'Web export');
-  for (const path of Object.keys(hashes)) {
-    const target = join(artifact, 'site', path);
-    mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(join(source, path), target);
-  }
-  record('web', artifact, { files: hashes });
+  record('web', artifact, { files, sourceMaps: treeHashes(join(artifact, 'sourcemaps')) });
 }
 
 function resolveBuild(platform = 'web') {
@@ -195,7 +217,8 @@ export function hostingConfig(source, site) {
   return { hosting: { ...hosting, public: resolve(site) } };
 }
 
-function deployConfig() {
+/** The downloaded web artifact, once its record names the selected build of this commit. */
+function webArtifact() {
   const artifact = join(required('RUNNER_TEMP'), 'hosting-artifact');
   const build = JSON.parse(readFileSync(join(artifact, 'build-record.json'), 'utf8'));
   const commit = command('git', ['rev-parse', 'HEAD']).toString().trim();
@@ -203,10 +226,37 @@ function deployConfig() {
     || String(build.repositoryId) !== required('GITHUB_REPOSITORY_ID') || String(build.runId) !== required('BUILD_RUN_ID')) {
     throw new Error('Downloaded artifact provenance does not match the selected build');
   }
+  return { artifact, build };
+}
+
+function deployConfig() {
+  const { artifact, build } = webArtifact();
   const site = join(artifact, 'site');
   if (JSON.stringify(treeHashes(site)) !== JSON.stringify(build.files)) throw new Error('Web artifact checksum mismatch');
   const source = JSON.parse(readFileSync('firebase.json', 'utf8'));
   writeFileSync(join(required('RUNNER_TEMP'), 'firebase-hosting.json'), JSON.stringify(hostingConfig(source, site)));
+}
+
+// Deploy Web's first job: the selected build's source maps to the app's web
+// project in Sentry, with sentry-cli at the path SENTRY_CLI names (the
+// workflow installs it, checksum-pinned). The token comes from BUILD_ENV, is
+// masked, and reaches sentry-cli in its environment only. No upload, no
+// deploy: the site never goes live with crashes nobody can read.
+function sourceMaps() {
+  const settings = config();
+  const { artifact, build } = webArtifact();
+  const directory = join(artifact, 'sourcemaps');
+  if (!build.sourceMaps || !Object.keys(build.sourceMaps).some((path) => path.endsWith('.map'))) {
+    throw new Error('The selected web build recorded no source maps; build it again with this ci-tools');
+  }
+  if (JSON.stringify(treeHashes(directory)) !== JSON.stringify(build.sourceMaps)) throw new Error('Source map checksum mismatch');
+  const values = required('BUILD_ENV');
+  maskEnvironment(values);
+  const token = parseEnv(values).SENTRY_AUTH_TOKEN;
+  if (!token) throw new Error("BUILD_ENV has no SENTRY_AUTH_TOKEN, so the web build's source maps cannot reach Sentry");
+  const { BUILD_ENV: _, ...env } = process.env;
+  command(required('SENTRY_CLI'), ['sourcemaps', 'upload', '--org', settings.sentry.org, '--project', settings.sentry.projects.web, directory],
+    { stdio: 'inherit', env: { ...env, SENTRY_AUTH_TOKEN: token, SENTRY_LOAD_DOTENV: '0' } });
 }
 
 async function validateAuthentication() {
@@ -232,6 +282,7 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   else if (task === 'resolve-build') resolveBuild();
   else if (task === 'resolve-android-build') resolveBuild('android');
   else if (task === 'deploy-config') deployConfig();
+  else if (task === 'sourcemaps') sourceMaps();
   else if (task === 'validate-auth') await validateAuthentication();
   else throw new Error('Unknown CI platform task');
 }

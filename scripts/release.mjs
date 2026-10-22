@@ -3,8 +3,10 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from '../lib/config.mjs';
 import { androidIdentity, buildNumber, versionCode, versionProblems } from '../lib/version.mjs';
 import { BUNDLE, fingerprint } from './publish-play.mjs';
+import { nativeBuildEnv } from './lib/sentry.mjs';
 
 /**
  * Release an app, the same way for every app, in two steps, because main takes
@@ -294,7 +296,7 @@ function ship() {
   sabeelCi(['build-aab'], inherit);
   sabeelCi(['publish-play', '--check'], inherit);
   sabeelCi(['build-info'], inherit);
-  show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android' });
+  show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android', env: nativeBuildEnv(config()) });
   const out = mkdtempSync(join(tmpdir(), `release-v${version}-`));
   const signer = fingerprint(/SHA256:\s*([0-9A-Fa-f:]+)/.exec(run('keytool', ['-printcert', '-jarfile', BUNDLE]))?.[1] ?? '');
   const signing = apksigner();

@@ -9,7 +9,7 @@ import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const script = fileURLToPath(new URL('../scripts/check-ios-config.mjs', import.meta.url));
-const SENTRY = { SENTRY_ORG: 'o', SENTRY_PROJECT: 'p', SENTRY_AUTH_TOKEN: 't' };
+const SENTRY = { SENTRY_AUTH_TOKEN: 't' };
 const fixtures = [];
 
 afterEach(() => {
@@ -28,10 +28,10 @@ function app(settings) {
 }
 
 describe('check-ios-config', () => {
-  it('passes a complete configuration, and warns where the Sentry build variables are missing', () => {
+  it('passes a complete configuration, and warns where the Sentry token is missing', () => {
     const { check } = app();
     expect(check()).toEqual({ problems: [], warnings: [], summary: `${BUNDLE_ID}, v1.2.3 build 3` });
-    expect(check({}).warnings).toEqual([expect.stringMatching(/^SENTRY_ORG, SENTRY_PROJECT, SENTRY_AUTH_TOKEN not set/)]);
+    expect(check({ SENTRY_ORG: 'o', SENTRY_PROJECT: 'p' }).warnings).toEqual([expect.stringMatching(/^SENTRY_AUTH_TOKEN not set in this shell[\s\S]*refuses\n {4}to build without it/)]);
   });
 
   it.each([
@@ -62,7 +62,7 @@ describe('check-ios-config', () => {
     ['an icon with alpha', ({ put }) => put('app/assets/icon.png', pngHeader(1024, 1024, 6)), /alpha channel \(PNG colour type 6\)/],
     ['an icon of the wrong size', ({ put }) => put('app/assets/icon.png', pngHeader(512, 512)), /512x512; the App Store icon must be 1024x1024/],
     ['an icon that is not a PNG', ({ put }) => put('app/assets/icon.png', 'GIF89a'), /is not a PNG/],
-    ['no DSN', ({ put }) => put('app/.env.local', 'EXPO_PUBLIC_OTHER=1\n'), /no EXPO_PUBLIC_SENTRY_DSN_NATIVE, so the build would ship with crash reporting OFF/],
+    ['no DSN', ({ put }) => put('app/.env.local', 'EXPO_PUBLIC_OTHER=1\n'), /no EXPO_PUBLIC_SENTRY_DSN_NATIVE, so this build would ship with crash reporting OFF/],
     ['the DSN under another app\'s name', ({ put }) => put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN=${DSN}\n`), /no EXPO_PUBLIC_SENTRY_DSN_NATIVE/],
     ['something that is not a DSN', ({ put }) => put('app/.env.local', 'EXPO_PUBLIC_SENTRY_DSN_NATIVE=http://example\n'), /does not look like a Sentry DSN/],
     ['no privacy manifest', ({ edit }) => edit((e) => { delete e.ios.privacyManifests; }), /no expo\.ios\.privacyManifests/],
@@ -80,7 +80,7 @@ describe('check-ios-config', () => {
     edit((e) => { e.plugins = e.plugins.filter((p) => !Array.isArray(p)); });
     put('app/android/app/build.gradle', 'versionName expoVersion\n');
     expect(check().problems).toEqual([]);
-    put('app/.env.local', `${minimal.build.sentryDsnVariable}="${DSN}"\n`);
+    put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE="${DSN}"\n`);
     expect(check().problems).toEqual([]);
   });
 
@@ -106,9 +106,9 @@ describe('check-ios-config', () => {
     result = run();
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/iOS config check FAILED[\s\S]*alpha channel/);
-    put('ci-tools.json', { ...full, build: { ...full.build, sentryDsnVariable: 'SENTRY_DSN' } });
+    put('ci-tools.json', { ...full, sentry: { ...full.sentry, org: 'Example Org' } });
     result = run();
     expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/build\.sentryDsnVariable has an invalid value/);
+    expect(result.stderr).toMatch(/sentry\.org has an invalid value/);
   });
 });
