@@ -110,11 +110,15 @@ jobs:
           java-version: 21
       # ci-tools: emulator-stack
       # ci-tools: emulator-secrets
-      # An apt mirror can hang (one held this step for 45 minutes): a stuck
-      # attempt is stopped after 5 minutes and tried once more.
+      # An apt mirror can stall a download indefinitely (one held this step
+      # for 45 minutes). apt's own timeouts make it fail instead, and the
+      # install runs once more. Stopping it from outside is no use: the
+      # apt-get it starts runs as root, outlives the kill and keeps the lock.
       - name: Install Chromium
-        timeout-minutes: 12
-        run: timeout 300 npx playwright install --with-deps chromium || timeout 300 npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: |
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null
+          npx playwright install --with-deps chromium || { sleep 15; npx playwright install --with-deps chromium; }
       - name: Browser suite
         env:
           SUITE: ${{ matrix.suite }}
