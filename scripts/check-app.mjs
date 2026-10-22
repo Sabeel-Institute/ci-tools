@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
+import { versionedFileProblems } from './release.mjs';
 import { drift } from './workflows.mjs';
 
 /**
@@ -43,6 +44,7 @@ export function problems(root = '.') {
     firebaseFixtures(app);
     return [];
   });
+  attempt(() => versionedFileProblems(root));
   attempt(() => {
     const manifest = resolve(root, 'functions/package.json');
     if (!existsSync(manifest)) return [];

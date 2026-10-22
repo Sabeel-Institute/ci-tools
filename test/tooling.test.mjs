@@ -156,4 +156,19 @@ describe('check-app', () => {
     expect(found[2]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
   });
+
+  it("reports every place the version is written that disagrees with app.json's", () => {
+    const { root, put } = app();
+    put('app/app.json', { expo: { version: '0.2.2', android: { package: 'com.sabeelinstitute.example', versionCode: 39 }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '6' } } });
+    put('app/android/app/build.gradle', '        versionCode 39\n        versionName "0.2.2"\n');
+    const found = problems(root);
+    expect(found).toHaveLength(3);
+    expect(found[0]).toMatch(/build\.gradle must derive the version from app\.json/);
+    expect(found[1]).toMatch(/expo\.ios\.buildNumber is "6"; version 0\.2\.2's is "2002"/);
+    expect(found[2]).toMatch(/USER-MANUAL\.md says "For app version 0\.2\.1", app\/app\.json 0\.2\.2/);
+    put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+    expect(problems(root)[0]).toMatch(/states android\.versionCode 39; remove it/);
+    put('app/app.json', { expo: { version: '0.2.2-beta.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
+    expect(problems(root)).toEqual([expect.stringMatching(/^app\/app\.json's expo\.version: "0\.2\.2-beta\.1" is not three/)]);
+  });
 });

@@ -35,11 +35,16 @@ differed only by accident.
    `web`, `web-deploy`; their tests, rewritten against templates and fixtures.
 2. **The drifted tools, merged.** `native-e2e` and `native.yml`; the iOS release
    path (`build-ios.sh`, `check-ios-config`, `testflight-check`,
-   `load-build-env.sh`, `ios.yml`); the Android release path (`publish-play`,
-   Kanban's `build-aab.sh` gates); push checks (`check-push`, `check-web-push`,
+   `load-build-env.sh`, `ios.yml`); the Android build (Kanban's `build-aab.sh`
+   gates); push checks (`check-push`, `check-web-push`,
    `send-test-push`); `preflight-metro`, `check-version`, `gen-build-info`,
    `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
    `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+   Merged: `publish-play` (the three copies, one Play publisher), and the
+   release flow, `release`, from the Time Tracker's `release.mjs`, Kanban's
+   `publish-apk.sh` and the LMS's recipe in its `docs/DEPLOY.md`. `release`
+   calls the build tools by their `sabeel-ci` names (`build-aab`,
+   `build-info`, `deploy-notes`), so it runs once those are merged.
 3. **The apps standardised where they differed by accident** (each in that
    app's migration pull request, with its tests):
    - one Android keystore variable name read by every app's Gradle build
@@ -52,7 +57,23 @@ differed only by accident.
    - one seed hook for the native flows (today `seed-emulator-world`,
      `seed-native`, `seed-dev`);
    - one label (and testID) for the emulator-only sign-in row, which
-     `check-release` must find absent (four spellings today).
+     `check-release` must find absent (four spellings today);
+   - the version written once, in `app/app.json`: the LMS's build.gradle
+     computes versionCode and versionName from it as Kanban's and the Time
+     Tracker's do (its next code is 2002; Play has 39), app.json drops
+     `android.versionCode`, and the LMS's update gate computes its own code
+     from the version;
+   - the iOS build number is the versionCode (`release` writes it), so each
+     version goes to TestFlight once, as it goes to Play once;
+   - the Play publishing key in `PLAY_KEY` (Kanban's `SK_PLAY_KEY` goes), and
+     the certificate Play signs installs with in `release.appSigningCertificate`
+     (Kanban's is the Google-generated key; the others' their release key);
+   - one release flow, `sabeel-ci release`: a `## Deploy log` section in
+     `docs/PHASE_STATUS.md` with `### <date> — <summary> — vX.Y.Z` entries,
+     newest first; a manual renderer that reads the version from app.json (the
+     Time Tracker's states it); build.gradle's ABI splits with a universal APK
+     (the Time Tracker builds twice); APKs named `<expo.slug>-<abi>.apk`,
+     arm64-v8a and universal (Kanban attaches four).
 4. **Each app migrates** in one pull request: the pin, `ci-tools.json`, rendered
    workflows, its copies deleted, its docs pointing here.
 

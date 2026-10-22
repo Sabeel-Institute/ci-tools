@@ -25,6 +25,12 @@ fine.
   `ci-premerge prepare`, `check-release`, the shell scripts. The release jobs
   never install the app's dependencies before verifying provenance; Publish
   Android and the device check never install them at all.
+- **The version is written once, in `app/app.json`.** Android's versionCode
+  and the iOS build number follow from it (`lib/version.mjs`); nothing else
+  states one, and `check-app` refuses an app where something does.
+- **Releases go through pull requests.** `release` pushes only
+  `release/v<version>` and opens its pull request; the owner merges it, and
+  `release --ship`, run by the owner, creates the tag with the GitHub release.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch
