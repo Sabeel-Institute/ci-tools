@@ -43,10 +43,17 @@ describe('ci-tools.json', () => {
   });
 
   it('refuses a missing, misspelt or malformed setting', () => {
-    expect(validate({ name: 'lms' })).toEqual({ name: 'lms' });
-    expect(() => validate({})).toThrow(/name is required/);
-    expect(() => validate({ name: 'lms', nmae: 'x' })).toThrow(/unknown key nmae/);
-    expect(() => validate({ name: '' })).toThrow(/invalid value/);
+    const ios = { sentryDsnVariable: 'EXPO_PUBLIC_SENTRY_DSN' };
+    expect(validate({ name: 'lms', ios })).toEqual({ name: 'lms', ios });
+    expect(validate(full)).toBe(full);
+    expect(() => validate({ ios })).toThrow(/name is required/);
+    expect(() => validate({ name: 'lms' })).toThrow(/ios is required/);
+    expect(() => validate({ name: 'lms', ios: {} })).toThrow(/ios\.sentryDsnVariable is required/);
+    expect(() => validate({ name: 'lms', ios, nmae: 'x' })).toThrow(/unknown key nmae/);
+    expect(() => validate({ name: 'lms', ios: { ...ios, releaseNote: true } })).toThrow(/unknown key ios\.releaseNote/);
+    expect(() => validate({ name: '', ios })).toThrow(/invalid value/);
+    expect(() => validate({ name: 'lms', ios: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/ios\.sentryDsnVariable has an invalid value/);
+    expect(() => validate({ name: 'lms', ios: { ...ios, buildInfo: 'yes' } })).toThrow(/ios\.buildInfo has an invalid value/);
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
