@@ -51,8 +51,10 @@ function app() {
   };
   put('ci-tools.json', full);
   put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\n');
-  put('app/app.json', { expo: { version: '0.2.0', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
-  put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.0\n');
+  put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
+  put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
+  put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
   put('functions/.env.demo-example', 'MEDIA_BUCKET=local\n');
@@ -91,6 +93,11 @@ describe('ci-tools.json', () => {
     expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/build\.sentryDsnVariable has an invalid value/);
     expect(() => validate({ ...minimal, ios: { backgroundPlayback: 'yes' } })).toThrow(/ios\.backgroundPlayback has an invalid value/);
     expect(() => validate({ ...minimal, ios: { releaseNotes: true } })).toThrow(/unknown key ios\.releaseNotes/);
+    for (const certificate of ['ab:'.repeat(31) + 'ab', 'AB'.repeat(32), 'AB:'.repeat(30) + 'AB']) {
+      expect(() => validate({ ...minimal, release: { appSigningCertificate: certificate } }), certificate).toThrow(/release\.appSigningCertificate has an invalid value/);
+    }
+    const { release: _release, ...unreleased } = minimal;
+    expect(() => validate(unreleased)).toThrow(/release is required/);
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
@@ -237,7 +244,8 @@ describe('check-app', () => {
   it('reports a secret or stamp Git would pick up, bad identifiers, unrecorded release and stale functions lock', () => {
     const { root, put } = app();
     put('.gitignore', '.env.local\n.env.sentry-build-plugin\n');
-    put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
+    put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>', buildNumber: '3000' } } });
+    put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.3.0 · October 2026*\n');
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
     expect(found).toHaveLength(5);
@@ -303,5 +311,21 @@ describe('check-app', () => {
       'packages/shared/src/constants.ts says the emulator project is demo-sabeel; ci-tools.json emulators.project is demo-example',
       'functions/.env.demo-sabeel is for another project: the Functions emulator reads functions/.env.demo-example',
     ]);
+  });
+
+  it("reports every place the version is written that disagrees with app.json's", () => {
+    const { root, put } = app();
+    put('app/app.json', { expo: { version: '0.2.2', android: { package: 'com.sabeelinstitute.example', versionCode: 39 }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '6' } } });
+    put('app/android/app/build.gradle', '        versionCode 39\n        versionName "0.2.2"\n');
+    put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-22 — The next release — v0.2.2\n\n### 2026-10-21 — The example release — v0.2.1\n');
+    const found = problems(root);
+    expect(found).toHaveLength(3);
+    expect(found[0]).toMatch(/build\.gradle must derive the version from app\.json/);
+    expect(found[1]).toMatch(/expo\.ios\.buildNumber is "6"; version 0\.2\.2's is "2002"/);
+    expect(found[2]).toMatch(/USER-MANUAL\.md says "For app version 0\.2\.1", app\/app\.json 0\.2\.2/);
+    put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+    expect(problems(root)[0]).toMatch(/states android\.versionCode 39; remove it/);
+    put('app/app.json', { expo: { version: '0.2.2-beta.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
+    expect(problems(root)).toEqual([expect.stringMatching(/^app\/app\.json's expo\.version: "0\.2\.2-beta\.1" is not three/)]);
   });
 });

@@ -3,11 +3,13 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
+import { versionProblems } from '../lib/version.mjs';
 import { BUILD_INFO } from './build-info.mjs';
 import { BLOCK, LAYOUT, LOWEST_BASE, PINNED, STARTABLE, ports } from '../lib/ports.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
 import { releaseAccessProblems } from './lib/release-access.mjs';
+import { versionedFileProblems } from './release.mjs';
 import { drift } from './workflows.mjs';
 
 /**
@@ -177,8 +179,11 @@ export function problems(root = '.') {
     firebaseFixtures(app);
     return [];
   });
+  attempt(() => versionedFileProblems(root));
   attempt(() => {
     const { version } = JSON.parse(readFileSync(resolve(root, 'app/app.json'), 'utf8')).expo;
+    // A malformed version is reported once, by the version check below.
+    if (versionProblems(version).length) return [];
     const problem = deployNotesProblem(String(version), root);
     return problem ? [`${problem}\n    The Android release build refuses to run without it.`] : [];
   });

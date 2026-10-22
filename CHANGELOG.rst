@@ -66,3 +66,20 @@ Unreleased
   pins Cloud Tasks and Eventarc, Time Tracker moves Eventarc to 61009, and the
   functions workspaces name their passes ``test:emulator:rules`` and
   ``test:emulator:functions`` (``docs/PLAN.md``).
+
+- ``publish-play``: the one Play publisher, merged from the apps' three copies
+  with every safeguard any of them had. It needs ``release.appSigningCertificate``
+  in ``ci-tools.json`` (the certificate Play signs installs with) and the
+  publishing key in ``PLAY_KEY`` or ``~/keys/sabeel-play-publisher.json``.
+  Publish Android runs it from ci-tools at main's pin; the job no longer copies
+  the app's publisher aside or installs the app's dependencies.
+- ``release``: one release flow for every app. ``release X.Y.Z --notes
+  <entry>`` opens the version's pull request; ``release --ship``, on main once
+  the owner has merged it, builds, checks, creates the GitHub release and tag,
+  and publishes to Play. Its notes are the version's deploy-log entry in
+  ``docs/PHASE_STATUS.md``, read with ``deploy-notes``.
+- Versions are written once, in ``app/app.json``: build.gradle must compute
+  versionCode and versionName from it (``lib/version.mjs``), app.json carries
+  no ``android.versionCode``, and ``expo.ios.buildNumber`` is the versionCode.
+  ``check-app`` refuses an app where any of these, or the manual's "For app
+  version" line, disagree.

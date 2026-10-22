@@ -9,5 +9,8 @@
   "build": {
     "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
   },
-  "emulators": { "base": 61900, "project": "demo-example" }
+  "emulators": { "base": 61900, "project": "demo-example" },
+  "release": {
+    "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
+  }
 }

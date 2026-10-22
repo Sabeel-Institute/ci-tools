@@ -24,14 +24,21 @@ fine.
   emulator.
 - **Scripts that run before `npm ci` use Node built-ins only,** and so does
   everything they import: `ci-platform` (with `build-aab`, `build-web` and
-  theirs), `ci-play` (with `check-version`), `ci-hosting-smoke`, `ci-functions
-  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`, the shell scripts. The
-  release jobs never install the app's dependencies before verifying
-  provenance, and the device check never installs them at all.
+  theirs), `ci-play` and `publish-play`, `ci-hosting-smoke`, `ci-functions
+  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`, the
+  shell scripts. The release jobs never install the app's dependencies before
+  verifying provenance; Publish Android and the device check never install
+  them at all.
 - **The push tools run the app's own sender.** `check-push` and
   `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
   `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
   here, and never print a key. Their tests stand fakes in for every service.
+- **The version is written once, in `app/app.json`.** Android's versionCode
+  and the iOS build number follow from it (`lib/version.mjs`); nothing else
+  states one, and `check-app` refuses an app where something does.
+- **Releases go through pull requests.** `release` pushes only
+  `release/v<version>` and opens its pull request; the owner merges it, and
+  `release --ship`, run by the owner, creates the tag with the GitHub release.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch

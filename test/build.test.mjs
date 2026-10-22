@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { androidIdentity, selfTest, versionProblems } from '../scripts/check-version.mjs';
+import { selfTest } from '../scripts/check-version.mjs';
 import { controlByte } from '../scripts/check-text-sources.mjs';
 import { deployNotes } from '../scripts/deploy-notes.mjs';
 import { foreignHolders } from '../scripts/preflight-metro.mjs';
@@ -106,24 +106,8 @@ describe('build-info', () => {
 });
 
 describe('check-version', () => {
-  it('keeps every version store-legal and inside the versionCode scheme', () => {
+  it('proves its own rules before it judges the app', () => {
     expect(() => selfTest()).not.toThrow();
-    for (const version of ['1.2.3-beta.1', '1.2.3.4', 'v1.2.3', '2026.07.01', '01.2.3', '1.2', '0.1.1000', '2100.0.1', '1.2.3 ', '']) {
-      expect(versionProblems(version), version).not.toEqual([]);
-    }
-    for (const version of ['0.0.1', '0.1.33', '0.29.1', '1.0.0', '2100.0.0']) expect(versionProblems(version), version).toEqual([]);
-    expect(versionProblems('2026.07.01')[0]).toMatch(/leading zeros/);
-    expect(versionProblems('0.1.1000')[0]).toMatch(/versionCode scheme/);
-    expect(versionProblems('1.2.3.4.5.6.7.8.9.10')).toHaveLength(2);
-  });
-
-  it("follows Android's version from app.json, computed or literal", () => {
-    const computed = 'versionCode computedVersionCode\nversionName expoVersion\n';
-    expect(androidIdentity({ version: '0.12.2', android: { package: 'p' } }, computed).versionCode).toBe(12002);
-    expect(androidIdentity({ version: '0.2.1', android: { package: 'p', versionCode: 39 } }, 'versionCode 39\nversionName "0.2.1"').versionCode).toBe(39);
-    expect(() => androidIdentity({ version: '0.2.1', android: { package: 'p', versionCode: 38 } }, 'versionCode 39\nversionName "0.2.1"')).toThrow(/build\.gradle gives 39, app\.json's android\.versionCode is 38/);
-    expect(() => androidIdentity({ version: '0.2.2', android: { package: 'p' } }, 'versionCode 39\nversionName "0.2.1"')).toThrow(/versions differ/);
-    expect(() => androidIdentity({ version: '07.1.1', android: { package: 'p' } }, computed)).toThrow(/leading zeros/);
   });
 
   it('passes a good app and names what is wrong with a bad one', () => {
@@ -136,7 +120,7 @@ describe('check-version', () => {
     expect(bad.status).toBe(1);
     expect(bad.stderr).toMatch(/version check FAILED[\s\S]*"0\.3\.0-beta\.1" is not three period-separated integers/);
     test.put('app/app.json', { expo: { version: '0.3.0', android: { package: 'x', versionCode: 5 } } });
-    expect(test.run('check-version').stderr).toMatch(/Inconsistent Android versionCode/);
+    expect(test.run('check-version').stderr).toMatch(/app\/app\.json states android\.versionCode 5; remove it/);
     expect(test.run('check-version', ['--strict']).status).toBe(2);
   });
 });

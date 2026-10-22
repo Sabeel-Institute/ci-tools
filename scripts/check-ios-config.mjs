@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
-import { versionProblems } from './check-version.mjs';
+import { versionProblems } from '../lib/version.mjs';
 
 /**
  * The iOS configuration, spread across files that must agree.

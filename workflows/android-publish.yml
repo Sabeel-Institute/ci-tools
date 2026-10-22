@@ -54,10 +54,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Preserve main's Play publisher
-        run: |
-          mkdir -p "$RUNNER_TEMP/play-release"
-          cp scripts/publish-play.mjs "$RUNNER_TEMP/play-release/"
       - name: Verify Android build provenance and successful CI
         id: build
         env:
@@ -82,11 +78,8 @@ jobs:
           echo "BUNDLETOOL_JAR=$BUNDLETOOL_JAR" >> "$GITHUB_ENV"
       - name: Verify AAB checksum, signature, package, version and commit
         run: sabeel-ci ci-play verify
-      - run: npm ci
-        if: inputs.publish
       - name: Check Play access or publish to internal testing
         env:
           PLAY_PUBLISHER_JSON: ${{ secrets.PLAY_PUBLISHER_JSON }}
           PLAY_PUBLISHER_ACCOUNT: ${{ vars.PLAY_PUBLISHER_ACCOUNT }}
-          PLAY_PUBLISHER_SCRIPT: ${{ runner.temp }}/play-release/publish-play.mjs
         run: sabeel-ci ci-play release
