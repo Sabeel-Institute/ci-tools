@@ -148,9 +148,10 @@ describe('platform build and deployment safety', () => {
     expect(deploy).not.toMatch(/^ {2}(push|pull_request|workflow_run):/m);
     expect(deploy).toContain('if: inputs.deploy');
     expect(deploy).toContain('default: false');
-    for (const name of ['android.yml', 'web.yml']) {
+    for (const name of ['android.yml', 'web.yml', 'ios.yml']) {
       expect(workflow(name)).toContain('branches: [main]');
     }
+    expect(workflow('ios.yml')).toContain("if: github.event_name == 'workflow_dispatch' && inputs.testflight");
     expect(workflow('android.yml')).not.toMatch(/publish:play|publish-play|upload_to_play_store/);
     expect(workflow('android.yml')).toContain('packages: platform-tools');
   });

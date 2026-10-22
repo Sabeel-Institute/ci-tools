@@ -25,7 +25,7 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\napp/android/keystore.properties\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\n');
   put('app/app.json', { expo: { android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
@@ -146,7 +146,7 @@ describe('check-app', () => {
 
   it('reports a secret file Git would pick up, bad identifiers and a stale functions lock', () => {
     const { root, put } = app();
-    put('.gitignore', '.env.local\n');
+    put('.gitignore', '.env.local\n.env.sentry-build-plugin\n');
     put('app/app.json', { expo: { android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
@@ -155,5 +155,11 @@ describe('check-app', () => {
     expect(found[1]).toMatch(/identifier/);
     expect(found[2]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it('reports a signing secret read outside release-build, in the app\'s own workflows too', () => {
+    const { root, put } = app();
+    put('.github/workflows/ci.yml', 'on: push\njobs:\n  test:\n    steps:\n      - run: x\n        env:\n          K: ${{ secrets.ASC_KEY_P8 }}\n');
+    expect(problems(root)).toEqual(['ci.yml job test reads ASC_KEY_P8 without entering the release-build environment']);
   });
 });
