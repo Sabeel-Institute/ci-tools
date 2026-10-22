@@ -2,7 +2,7 @@
 
 Shared CI, release and device-test tooling for `Sabeel-Institute/lms`,
 `sabeel-institute-kanban` and `sabeel-institute-time-tracker`. Usage is in
-`README.md`; the consolidation still under way is `docs/PLAN.md`.
+`README.md`; what each app still changes to adopt it is `docs/PLAN.md`.
 
 **This repository is PUBLIC**, like the three apps. No secrets, no real names,
 no data. Identifiers already public in the apps (bundle ids, project ids) are

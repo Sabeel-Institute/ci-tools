@@ -116,9 +116,10 @@ Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
 Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
 to the build it installed, and `scripts/seed-emulators.mjs` seeds the
-emulators for them, run with node from the app's root. Its `.github/dependabot.yml` leaves out
-`github-actions`: this repository's Dependabot updates the actions in the
-templates, and the app takes them with its next pin.
+emulators for them, run with node from the app's root. Its
+`.github/dependabot.yml` leaves out `github-actions`: this repository's
+Dependabot updates the actions in the templates, and the app takes them with
+its next pin.
 
 Its Android build, held by `check-app`:
 
@@ -297,4 +298,4 @@ re-rendering (`npx sabeel-ci workflows`) and passing its own CI. CI refuses a
 pin that is not on this repository's `main`.
 
 `CHANGELOG.rst` records what each change means for the apps. `docs/PLAN.md` is
-the consolidation still in progress.
+what each app still changes to adopt the current configuration.
