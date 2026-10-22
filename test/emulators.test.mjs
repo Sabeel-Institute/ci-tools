@@ -72,7 +72,7 @@ function app(settings = full) {
   mkdirSync(join(root, 'functions'));
   tool(fakes, 'ss', FAKE_SS);
   tool(fakes, 'npm', `echo "npm $*" >>"$FAKE_LOG"`);
-  tool(fakes, 'firebase', `echo "firebase $* JAVA_HOME=$JAVA_HOME" >>"$FAKE_LOG"
+  tool(fakes, 'firebase', `echo "firebase $* JAVA_HOME=$JAVA_HOME FUNCTIONS_DISCOVERY_TIMEOUT=$FUNCTIONS_DISCOVERY_TIMEOUT" >>"$FAKE_LOG"
 case "$*" in *test:emulator:rules*) exit "\${RULES_EXIT:-0}" ;; esac
 [ -z "$FIREBASE_PIDFILE" ] && exit 0
 trap 'echo "firebase got TERM" >>"$FAKE_LOG"; exit 143' TERM
@@ -86,6 +86,7 @@ while :; do sleep 0.1; done`);
     FAKE_SS_LOG: join(root, 'ss.log'),
     FAKE_SS_TABLE: join(root, 'ss.table'),
     SABEEL_JDK21_HOME: jdk('21.0.5'),
+    FUNCTIONS_DISCOVERY_TIMEOUT: '',
   };
   const log = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), 'utf8').trim().split('\n') : []);
   return { root, env, log };
@@ -253,9 +254,9 @@ describe('sabeel-ci test-emulator', () => {
     expect(result.status).toBe(0);
     expect(log('fake.log')).toEqual([
       'npm run build',
-      `firebase emulators:exec --project demo-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
+      `firebase emulators:exec --project demo-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
       'with-store around: firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions',
-      `firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
+      `firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
     expect(result.stdout.match(/emulator ports clear/g)).toHaveLength(2);
   });
@@ -286,8 +287,17 @@ describe('sabeel-ci emulators', () => {
     expect(log('fake.log')).toEqual([
       'npm run build',
       'with-store around: firebase emulators:start --project demo-example --only firestore,auth,functions,storage',
-      `firebase emulators:start --project demo-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
+      `firebase emulators:start --project demo-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
+  });
+
+  it("gives a Functions worker 120 s to load, or the caller's own FUNCTIONS_DISCOVERY_TIMEOUT", () => {
+    const { root, env, log } = app();
+    expect(sabeel(root, { ...env, FUNCTIONS_DISCOVERY_TIMEOUT: '300' }, 'emulators').status).toBe(0);
+    expect(log('fake.log').at(-1)).toMatch(/^firebase emulators:start .* FUNCTIONS_DISCOVERY_TIMEOUT=300$/);
+    expect(sabeel(root, { ...env, FUNCTIONS_DISCOVERY_TIMEOUT: '300' }, 'test-emulator').status).toBe(0);
+    expect(log('fake.log').filter((line) => line.startsWith('firebase emulators:exec')).map((line) => line.split(' ').at(-1)))
+      .toEqual(['FUNCTIONS_DISCOVERY_TIMEOUT=300', 'FUNCTIONS_DISCOVERY_TIMEOUT=300']);
   });
 
   it('stops the emulators when sabeel-ci alone is sent SIGTERM', async () => {

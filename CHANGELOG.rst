@@ -4,6 +4,11 @@ Changelog
 Unreleased
 ----------
 
+- ``emulators`` and ``test-emulator`` (and ``native-e2e`` through
+  ``emulators``) set ``FUNCTIONS_DISCOVERY_TIMEOUT=120`` unless the caller
+  set it: firebase-tools gives a new Functions worker 30 s to load, which a
+  busy macOS runner exceeded, failing a request with "Failed to load
+  function".
 - The tools the three apps kept identical copies of, as one package:
   ``check-release``, ``ci-android-sdk``, ``ci-avd``, ``ci-functions``,
   ``ci-hosting-smoke``, ``ci-platform``, ``ci-play``, ``ci-premerge`` (with the

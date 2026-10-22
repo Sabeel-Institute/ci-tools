@@ -71,7 +71,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper` |
+| `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper`. A Functions worker has 120 s to load (`FUNCTIONS_DISCOVERY_TIMEOUT`, unless set), here and in `test-emulator` |
 | `test-emulator` | The functions workspace's emulator suites: `test:emulator:rules` without the Functions emulator, then `test:emulator:functions` with it |
 | `free-emulator-ports` | Stop this checkout's leftovers on the app's emulator ports, and the functions runtimes they orphaned |
 | `ports [<name>\|--suite]` | The app's ports, one of them, or those an emulator run binds |
