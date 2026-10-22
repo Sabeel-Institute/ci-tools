@@ -53,3 +53,16 @@ Unreleased
   app that plays with the phone locked sets ``ios.backgroundPlayback``.
   ``check-app`` holds the release-access rules over every workflow an app
   has and requires ``.gitignore`` to cover ``app/.env.sentry-build-plugin``.
+
+- Emulator control, merged from the apps' drifted copies: ``emulator`` (the
+  local AVD), ``emulators``, ``test-emulator``, ``free-emulator-ports``,
+  ``jdk21`` and ``ports``. One port layout for every app, computed from
+  ``emulators`` in ``ci-tools.json``, which each app now sets; ``check-app``
+  holds ``firebase.json``, ``app/src/env.ts`` and the shared emulator project
+  to it in place of each app's emulator ports test. ``check-release`` boots
+  the local AVD through ``sabeel-ci emulator``, and ``sabeel-ci`` passes a
+  signal it receives on to the command it runs. At migration LMS moves its
+  media store's S3 port to 61327 and swaps its web dev-server ports, Kanban
+  pins Cloud Tasks and Eventarc, Time Tracker moves Eventarc to 61009, and the
+  functions workspaces name their passes ``test:emulator:rules`` and
+  ``test:emulator:functions`` (``docs/PLAN.md``).

@@ -3,13 +3,13 @@ set -euo pipefail
 
 # Boot an Android emulator on a GitHub-hosted Linux runner and wait for it:
 # API 35, Google APIs, x86_64, a Pixel 6 screen, like this machine's tb_emu.
-# Locally use scripts/emulator.sh; this one needs the runner's sudo and SDK.
+# Locally use `sabeel-ci emulator`; this one needs the runner's sudo and SDK.
 #
 #   sabeel-ci ci-avd
 
 : "${ANDROID_HOME:?ANDROID_HOME is not set}"
 if [ "${GITHUB_ACTIONS:-}" != true ]; then
-  echo "ci-avd.sh boots an emulator on a GitHub runner; locally use scripts/emulator.sh" >&2
+  echo "ci-avd boots an emulator on a GitHub runner; locally use sabeel-ci emulator headless" >&2
   exit 2
 fi
 
