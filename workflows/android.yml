@@ -1,0 +1,93 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository_owner == 'Sabeel-Institute'
+    environment: release-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # ci-tools: ci-tools
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Restore build configuration and existing signing key
+        env:
+          APP_ENV_LOCAL: ${{ secrets.APP_ENV_LOCAL }}
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PROPERTIES: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: sabeel-ci ci-platform prepare-android
+      - run: npm ci
+      - name: Android SDK packages, with retries
+        run: sabeel-ci ci-android-sdk
+      - name: Build and verify signed Play bundle
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        run: sabeel-ci ci-platform android
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-aab-${{ github.sha }}
+          path: ${{ runner.temp }}/android-artifact
+          if-no-files-found: error
+          retention-days: 14
+
+  device-check:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # ci-tools: ci-tools
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-aab-${{ github.sha }}
+          path: ${{ runner.temp }}/android-artifact
+      - name: Boot an Android emulator
+        run: sabeel-ci ci-avd
+      - name: The release bundle starts cleanly, five cold starts
+        run: sabeel-ci check-release "$RUNNER_TEMP/android-artifact/app-release.aab" --commit "$GITHUB_SHA" --out "$RUNNER_TEMP/release-check"
+      - name: Screens and device logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-check-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/release-check/*.png
+            ${{ runner.temp }}/release-check/*.txt
+            ${{ runner.temp }}/release-check/result.json
+            ${{ runner.temp }}/emulator.log
+          retention-days: 14

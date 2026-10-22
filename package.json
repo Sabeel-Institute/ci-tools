@@ -1,0 +1,31 @@
+{
+  "name": "@sabeel-institute/ci-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CI, release and device-test tooling shared by the Sabeel Institute apps",
+  "type": "module",
+  "bin": {
+    "sabeel-ci": "bin/sabeel-ci.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "scripts",
+    "workflows"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint:shell": "shellcheck scripts/*.sh",
+    "lint:workflows": "rm -rf .rendered && node scripts/workflows.mjs --to .rendered && actionlint -color .github/workflows/*.yml .rendered/*.yml"
+  },
+  "dependencies": {
+    "pixelmatch": "^8.0.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}
