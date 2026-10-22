@@ -8,6 +8,7 @@ import { config, findRoot, validate } from '../lib/config.mjs';
 import { problems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
+import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
 const fixtures = [];
@@ -43,10 +44,14 @@ describe('ci-tools.json', () => {
   });
 
   it('refuses a missing, misspelt or malformed setting', () => {
-    expect(validate({ name: 'lms' })).toEqual({ name: 'lms' });
-    expect(() => validate({})).toThrow(/name is required/);
-    expect(() => validate({ name: 'lms', nmae: 'x' })).toThrow(/unknown key nmae/);
-    expect(() => validate({ name: '' })).toThrow(/invalid value/);
+    expect(validate(structuredClone(minimal))).toEqual(minimal);
+    expect(validate(structuredClone(full))).toEqual(full);
+    expect(() => validate({ ci: minimal.ci })).toThrow(/name is required/);
+    expect(() => validate({ ...minimal, nmae: 'x' })).toThrow(/unknown key nmae/);
+    expect(() => validate({ ...minimal, name: '' })).toThrow(/invalid value/);
+    expect(() => validate({ ...minimal, ci: { ...minimal.ci, mediaStroe: true } })).toThrow(/unknown key ci\.mediaStroe/);
+    expect(() => validate({ ...minimal, ci: { ...minimal.ci, browserSuites: ['test:e2e'] } })).toThrow(/ci\.browserSuites/);
+    expect(() => validate({ ...minimal, ci: { ...minimal.ci, emulatorSecrets: { SENTRY_DSN: "it's" } } })).toThrow(/ci\.emulatorSecrets/);
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
@@ -123,7 +128,7 @@ describe('the shared workflows', () => {
     put('.github/workflows/web.yml', 'edited by hand\n');
     rmSync(join(root, '.github/workflows/android.yml'));
     put('.github/workflows/old.yml', '# Rendered from Sabeel-Institute/ci-tools workflows/old.yml by\n');
-    put('.github/workflows/ci.yml', 'the app\'s own\n');
+    put('.github/workflows/app-only.yml', 'the app\'s own\n');
     expect(drift(root)).toEqual([
       '.github/workflows/android.yml is missing',
       '.github/workflows/web.yml differs from ci-tools workflows/web.yml',

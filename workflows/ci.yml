@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  workflow-validation:
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate workflows and embedded shell
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/actionlint.tgz" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint" -color
+
+  quality:
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # ci-tools: ci-tools
+      - name: Install dependencies
+        run: npm ci
+      - name: What ci-tools assumes of the app
+        run: sabeel-ci check-app
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      # ci-tools: knip if ci.knip
+      # ci-tools: ffmpeg if ci.ffmpeg
+      - name: Unit tests
+        run: npm test
+
+  integration:
+    if: github.event.pull_request.draft != true
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      # ci-tools: emulator-stack
+      - name: Emulator integration tests
+        run: npm run test:emulator
+
+  browser:
+    if: github.event.pull_request.draft != true
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        suite: {{ci-tools.ci.browserSuites}}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # ci-tools: ci-tools
+      - name: Install dependencies
+        run: npm ci
+      # ci-tools: emulator-stack
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: npm run "$SUITE"
+      - name: Screens report, compared with main
+        if: always() && matrix.suite == 'test:screens'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sabeel-ci screens-report shots/screens --baseline-from-main --out "$RUNNER_TEMP/screens-report"
+      - name: Keep the screens report
+        if: always() && matrix.suite == 'test:screens'
+        uses: actions/upload-artifact@v7
+        with:
+          name: screens-report
+          path: ${{ runner.temp }}/screens-report
+          retention-days: 30
+      - name: Screens and logs from the suite
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-${{ strategy.job-index }}
+          path: shots/
+          retention-days: 7
+
+  build-test:
+    if: always() && github.event.pull_request.draft != true
+    needs: [workflow-validation, quality, integration, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const jobs = Object.values(JSON.parse(process.env.JOB_RESULTS)); if (!jobs.length || jobs.some(job => job.result !== "success")) process.exit(1);'

@@ -39,7 +39,8 @@ differed only by accident.
    Kanban's `build-aab.sh` gates); push checks (`check-push`, `check-web-push`,
    `send-test-push`); `preflight-metro`, `check-version`, `gen-build-info`,
    `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
-   `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+   `test-emulator.sh`, `free-emulator-ports.sh`). Done: `ci.yml` and
+   `codeql.yml`.
 3. **The apps standardised where they differed by accident** (each in that
    app's migration pull request, with its tests):
    - one Android keystore variable name read by every app's Gradle build
@@ -51,8 +52,19 @@ differed only by accident.
      store), declared once in `ci-tools.json`;
    - one seed hook for the native flows (today `seed-emulator-world`,
      `seed-native`, `seed-dev`);
-   - one label (and testID) for the emulator-only sign-in row, which
-     `check-release` must find absent (four spellings today).
+   - one heading for the emulator-only sign-in row, "Dev sign-in (emulator
+     only)" with testID `dev-sign-in`, which `check-release` must find
+     absent: Kanban has it; LMS ("Emulator sign-in (dev only)", also in its
+     staff flow and tutorial recorder) and TT ("Dev (emulator) sign-in")
+     rename theirs;
+   - the CI contract: npm scripts `lint`, `typecheck`, `test`,
+     `test:emulator`, `test:screens` and the other browser suites (Kanban
+     names its six; LMS's become plain npm scripts), screenshots under
+     `shots/` (TT moves off `e2e-shots/`), Kanban's migration end-to-end
+     run inside its `test:emulator`, Kanban's web export left to the
+     pre-merge web job;
+   - Kanban clears its dead-code findings and turns on `ci.knip` (dozens of
+     unused exports and types today; until then `ci.knip` is off for it).
 4. **Each app migrates** in one pull request: the pin, `ci-tools.json`, rendered
    workflows, its copies deleted, its docs pointing here.
 
@@ -64,11 +76,6 @@ migrations, backfills, LMS's media store.
 The apps' copies of these tests also checked workflows that are not templates
 yet. Each comes back here with its template:
 
-- `ci.yml`: the fail-closed `build-test` gate over every job, actionlint
-  1.7.12 checksum-pinned with shellcheck, the screens report on every sweep
-  (`if: always()`, kept as the `screens-report` artifact).
-- `codeql.yml`: `javascript-typescript`, `build-mode: none`, scheduled, no
-  secrets, no `pull_request_target`.
 - `ios.yml`: built on main pushes, TestFlight only on a manual run with
   `testflight`; release-build environment for both jobs; the owner check first.
 - `native.yml`, with `nativeE2e`; `releaseAccess` over every template.

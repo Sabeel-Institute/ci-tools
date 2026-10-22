@@ -1,1 +1,16 @@
-{ "name": "example" }
+{
+  "name": "example",
+  "ci": {
+    "browserSuites": [
+      "test:screens",
+      "test:e2e"
+    ],
+    "emulatorSecrets": {
+      "SENTRY_DSN": "disabled",
+      "APNS_KEY": "unused-in-emulator"
+    },
+    "knip": true,
+    "ffmpeg": true,
+    "mediaStore": true
+  }
+}
