@@ -40,6 +40,23 @@ root, the directory holding `ci-tools.json`.
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
 
+## ci-tools.json
+
+Every key is checked; an unknown or misspelt one fails every command.
+
+| Key | Meaning |
+|---|---|
+| `name` | The app's short name |
+| `ci.browserSuites` | The npm scripts the CI browser job runs, one runner each; `test:screens` is the sweep, and its `shots/screens/` feeds the screens report |
+| `ci.emulatorSecrets` | Each secret the functions bind in the emulators, with its placeholder (`{"SENTRY_DSN": "disabled"}`) |
+| `ci.knip` | Run `npm run knip` in CI |
+| `ci.ffmpeg` | ffmpeg on the test runners |
+| `ci.mediaStore` | SeaweedFS on the integration and browser runners (`WEED_BIN`) |
+
+Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
+`test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when
+`ci.knip` is set. Browser and device suites write screenshots under `shots/`.
+
 ## Changing ci-tools
 
 A change here lands through a pull request merged by the owner, like the apps.

@@ -1,1 +1,9 @@
-{ "name": "example" }
+{
+  "name": "example",
+  "ci": {
+    "browserSuites": [
+      "test:screens"
+    ],
+    "emulatorSecrets": {}
+  }
+}
