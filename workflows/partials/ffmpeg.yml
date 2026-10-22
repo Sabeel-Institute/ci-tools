@@ -1,2 +1,9 @@
+# Without its recommends: the runners' apt mirror has taken 41 minutes over
+# the full set. apt's own timeouts turn a stalled download into a failure,
+# and the install runs once more (see ci.yml's browser job).
 - name: Install ffmpeg
-  run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+  timeout-minutes: 15
+  run: |
+    echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null
+    install() { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg; }
+    install || { sleep 15; install; }

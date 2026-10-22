@@ -1,4 +1,7 @@
-# An apt mirror can hang: a stuck attempt is stopped and tried once more.
+# An apt mirror can stall a download: apt's own timeouts make it fail
+# instead, and the install runs once more (see ci.yml's browser job).
 - name: Install Chromium for the seed
-  timeout-minutes: 12
-  run: timeout 300 npx playwright install --with-deps chromium || timeout 300 npx playwright install --with-deps chromium
+  timeout-minutes: 15
+  run: |
+    echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null
+    npx playwright install --with-deps chromium || { sleep 15; npx playwright install --with-deps chromium; }
