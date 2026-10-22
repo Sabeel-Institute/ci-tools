@@ -43,6 +43,20 @@ root, the directory holding `ci-tools.json`.
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
 | `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
 
+### Dependency updates
+
+Dependabot updates `package.json` files and the root lock, and nothing else.
+A pull request of its that moves a functions dependency or a native package
+needs the rest before CI passes, each one a commit on its branch:
+
+| Command | What it does |
+|---|---|
+| `sync-functions-lock` | Bring `functions/package-lock.json`, which Cloud Build installs from, in step with `functions/package.json` (`check-app` fails until it is): updated in place, so only what the manifest moved changes, with each direct dependency at the root lock's version |
+| `pods [--check\|--write]` | On a Mac: regenerate `app/ios` (a prebuild scoped to iOS) and install the pods `app/Podfile.lock` pins; when pod install refuses the lock because a package moved a pod built from `node_modules`, update those pods alone. `--check` fails unless the pods installed are the lock's (`build-ios` and the pre-merge iOS build); `--write` writes them to `app/Podfile.lock` |
+
+An Expo patch can recommend a newer minor of a package Dependabot holds back;
+the pre-merge SDK check names it with the `npm install` that takes it.
+
 ### Releases
 
 | Command | What it does |

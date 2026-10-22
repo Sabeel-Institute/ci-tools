@@ -461,7 +461,7 @@ export function problems(root = '.') {
     const { dependencies, devDependencies } = JSON.parse(readFileSync(manifest, 'utf8'));
     const lock = JSON.parse(readFileSync(resolve(root, 'functions/package-lock.json'), 'utf8')).packages[''];
     return JSON.stringify([lock.dependencies, lock.devDependencies]) === JSON.stringify([dependencies, devDependencies])
-      ? [] : ['functions/package-lock.json is out of step with functions/package.json (Cloud Build installs from that lock): run npm install in functions/'];
+      ? [] : ['functions/package-lock.json is out of step with functions/package.json (Cloud Build installs from that lock): run npx sabeel-ci sync-functions-lock'];
   });
   return found;
 }

@@ -4,6 +4,17 @@ Changelog
 Unreleased
 ----------
 
+- ``sync-functions-lock`` brings ``functions/package-lock.json`` in step
+  with ``functions/package.json``, updated in place with each direct
+  dependency at the root lock's version; ``check-app`` names it when the two
+  disagree, which every Dependabot update of a functions dependency causes.
+- ``pods [--check|--write]`` is the one way the pods are installed:
+  ``build-ios``, ``ios-sim-build`` and the pre-merge iOS build run it. When
+  pod install refuses the lock because a package moved a pod built from
+  ``node_modules``, it updates those pods alone, so the trunk's stay pinned;
+  ``--write`` on a Mac makes the ``app/Podfile.lock`` a native dependency
+  update needs. The pre-merge SDK check names the ``npm install`` that takes
+  a recommended version.
 - The Linux runners take ffmpeg 7.0.2 as a static build from
   ffmpeg-static's ``b6.1.1`` GitHub release, checksum-pinned, with ffprobe,
   in place of apt: the runners' apt mirror stalled about one ffmpeg install in
