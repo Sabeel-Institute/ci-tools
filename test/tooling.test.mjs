@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
-import { portProblems, problems } from '../scripts/check-app.mjs';
+import { hostingProblems, portProblems, problems, pushChannelProblems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
 import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
 import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
@@ -13,10 +13,33 @@ import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
-/** How build.gradle finds the release key, the one variable ci-platform sets, and applies Sentry's upload. */
+/** build.gradle's stop for a release it cannot sign, as Kanban wrote it. */
+const RELEASE_KEY = `gradle.taskGraph.whenReady { graph ->
+    def releaseSigning = android.buildTypes.release.signingConfig
+    def packagesRelease = graph.allTasks.any { it.project == project && it.name ==~ /^(package|sign)Release(Bundle)?$/ }
+    if (packagesRelease && releaseSigning != null && releaseSigning.storeFile == null) {
+        throw new GradleException("No release key: restore it from the vault; a release is never left unsigned.")
+    }
+}
+`;
+/** How build.gradle finds the release key, the one variable ci-platform sets, stops without one, and applies Sentry's upload. */
 const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
-  + SENTRY_GRADLE;
+  + RELEASE_KEY + SENTRY_GRADLE;
 const METRO = "const { getSentryExpoConfig } = require('@sentry/react-native/metro');\nmodule.exports = getSentryExpoConfig(__dirname);\n";
+/** LMS's Hosting site, the one shape. */
+const HOSTING = {
+  public: 'app/dist-web',
+  rewrites: [{ source: '/privacy', destination: '/privacy.html' }, { source: '!/_expo/**', destination: '/index.html' }],
+  headers: [
+    { source: '**', headers: [{ key: 'Cache-Control', value: 'no-cache, must-revalidate' }] },
+    { source: '!/__/**', headers: [{ key: 'X-Frame-Options', value: 'DENY' }, { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+      { key: 'X-Content-Type-Options', value: 'nosniff' }, { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }] },
+    { source: '/_expo/static/**', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
+    { source: '/assets/**', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
+  ],
+};
+const CHANNEL = '<meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sabeel-alerts"/>';
+const MANIFEST = (meta) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n  <application>\n    ${meta}\n  </application>\n</manifest>\n`;
 const fixtures = [];
 
 afterEach(() => {
@@ -55,9 +78,12 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n*.jks\n*.keystore\n*service-account*.json\n*firebase-adminsdk*.json\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n  }\n}\n");
+  put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL));
+  put('.firebaserc', { projects: { default: 'example-project' } });
   put('app/metro.config.js', METRO);
   put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_NATIVE;\n');
   put('app/src/sentry.web.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_WEB;\n');
@@ -67,9 +93,10 @@ function app() {
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
   put('functions/.env.demo-sabeel-example', 'MEDIA_BUCKET=local\n');
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
-  put('firebase.json', { emulators: FIREBASE_EMULATORS });
+  put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
   put('app/src/env.ts', ENV_TS);
   put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-sabeel-example';\n");
+  put('packages/shared/src/notify.ts', "export const PUSH_CHANNEL_ID = 'sabeel-alerts';\n");
   put('scripts/seed.mjs', "import { ports } from '@sabeel-institute/ci-tools/lib/ports.mjs';\nconst wait = 61000; // ms, not a port\n");
   put('package.json', { scripts: { 'dev:web': 'cd app && expo start --web --port $(sabeel-ci ports web)', test: 'vitest run' } });
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -263,14 +290,18 @@ describe('check-app', () => {
     put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>', buildNumber: '3000' } } });
     put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.3.0 · October 2026*\n');
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
-    const found = problems(root);
-    expect(found).toHaveLength(6);
-    expect(found[0]).toMatch(/does not cover app\/android\/keystore\.properties/);
-    expect(found[1]).toMatch(/does not cover app\/src\/build-info\.ts, which every build writes/);
-    expect(found[2]).toMatch(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/);
-    expect(found[3]).toMatch(/identifier/);
-    expect(found[4]).toMatch(/no deploy-log entry for v0\.3\.0/);
-    expect(found[5]).toMatch(/out of step/);
+    expect(problems(root)).toEqual([
+      expect.stringMatching(/does not cover app\/android\/keystore\.properties/),
+      '.gitignore does not cover *.jks (release.jks, say): a key committed to a public repository stays readable in its history',
+      expect.stringMatching(/does not cover \*\.keystore \(app\/android\/app\/release\.keystore, say\)/),
+      expect.stringMatching(/does not cover \*service-account\*\.json/),
+      expect.stringMatching(/does not cover \*firebase-adminsdk\*\.json/),
+      expect.stringMatching(/does not cover app\/src\/build-info\.ts, which every build writes/),
+      expect.stringMatching(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/),
+      expect.stringMatching(/identifier/),
+      expect.stringMatching(/no deploy-log entry for v0\.3\.0/),
+      expect.stringMatching(/out of step/),
+    ]);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
   });
 
@@ -303,6 +334,82 @@ describe('check-app', () => {
       'app/src reads EXPO_PUBLIC_SENTRY_DSN_ANDROID; the Sentry DSNs are EXPO_PUBLIC_SENTRY_DSN_NATIVE (Android and iOS) and EXPO_PUBLIC_SENTRY_DSN_WEB (web)',
       'app/src never reads EXPO_PUBLIC_SENTRY_DSN_NATIVE, which the release builds require in app/.env.local',
     ]);
+  });
+
+  it('reports a build.gradle that would package a release it cannot sign', () => {
+    const { root, put } = app();
+    const versions = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    const message = /^app\/android\/app\/build\.gradle does not stop a release it cannot sign[\s\S]*gradle\.taskGraph\.whenReady \{ graph ->/;
+    for (const gradle of [
+      SIGNING.replace(RELEASE_KEY, ''),
+      SIGNING.replace('releaseSigning.storeFile == null', 'true'),
+      SIGNING.replace('releaseSigning != null && ', ''),
+      SIGNING.replace('/^(package|sign)Release(Bundle)?$/', '/^packageRelease$/'),
+      SIGNING.replace(/throw new GradleException\(.*\)/, 'logger.warn("unsigned")'),
+    ]) {
+      put('app/android/app/build.gradle', gradle + versions);
+      expect(problems(root), gradle).toEqual([expect.stringMatching(message)]);
+    }
+  });
+
+  it('holds the Hosting site to one shape: security headers, immutable assets, the SPA rewrite, a default project', () => {
+    const { root, put } = app();
+    const hosting = (change) => {
+      const site = structuredClone(HOSTING);
+      change(site);
+      put('firebase.json', { hosting: site, emulators: FIREBASE_EMULATORS });
+      return hostingProblems(root);
+    };
+    expect(hosting(() => {})).toEqual([]);
+    expect(hosting((site) => { site.headers.splice(1, 1); })).toEqual([
+      "firebase.json hosting has no headers rule for !/__/**, every page but Firebase's own: it sets X-Frame-Options: DENY, "
+        + "Content-Security-Policy: frame-ancestors 'none', X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin-when-cross-origin",
+    ]);
+    expect(hosting((site) => {
+      site.headers[1].headers[0].value = 'SAMEORIGIN';
+      site.headers[1].headers[1].value = "default-src 'self'; frame-ancestors 'none'";
+      site.headers[1].headers.pop();
+      site.headers[0].headers.push({ key: 'X-Frame-Options', value: 'SAMEORIGIN' });
+    })).toEqual([
+      'firebase.json hosting does not set X-Frame-Options: DENY on !/__/** (it sets "SAMEORIGIN")',
+      'firebase.json hosting does not set Referrer-Policy: strict-origin-when-cross-origin on !/__/**',
+      "firebase.json hosting sets X-Frame-Options on **; set it on !/__/** only, so Firebase's own /__/ pages, which sign-in frames, keep working",
+    ]);
+    expect(hosting((site) => { site.headers.pop(); site.rewrites[1].source = '**'; })).toEqual([
+      'firebase.json hosting does not cache /assets/** as "public, max-age=31536000, immutable": its files are named by their content',
+      'firebase.json hosting must rewrite to /index.html from "!/_expo/**" alone, so a missing chunk under /_expo/ is a 404 rather than index.html served as JavaScript (it rewrites from "**")',
+    ]);
+    put('firebase.json', { hosting: [HOSTING], emulators: FIREBASE_EMULATORS });
+    expect(hostingProblems(root)).toEqual(['firebase.json must have one Hosting site, an object under "hosting": Deploy Web publishes one']);
+    put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
+    put('.firebaserc', { projects: { dev: 'example-project' } });
+    expect(problems(root)).toEqual(['.firebaserc has no "default" project alias (it has dev): firebase and the push checks use the default']);
+  });
+
+  it("holds Android's default notification channel to the one the functions send on", () => {
+    const { root, put } = app();
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST('<meta-data android:value="sabeel-alerts" android:name="com.google.firebase.messaging.default_notification_channel_id" />'));
+    expect(pushChannelProblems(root)).toEqual([]);
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL.replace('sabeel-alerts', 'alerts')));
+    expect(pushChannelProblems(root)).toEqual([
+      'app/android/app/src/main/AndroidManifest.xml makes alerts the default notification channel; the functions send on PUSH_CHANNEL_ID sabeel-alerts',
+    ]);
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST('<meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic"/>'));
+    expect(problems(root)).toEqual([
+      'app/android/app/src/main/AndroidManifest.xml has no com.google.firebase.messaging.default_notification_channel_id meta-data, '
+        + 'so a push sent without a channel lands in Android\'s "Miscellaneous":\n'
+        + '    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sabeel-alerts"/>',
+    ]);
+    rmSync(join(root, 'packages/shared/src/notify.ts'));
+    expect(pushChannelProblems(root)).toEqual(['packages/shared/src must export one PUSH_CHANNEL_ID, the channel the functions send on; it exports 0']);
+  });
+
+  it('holds the google-services Gradle plugin at one version', () => {
+    const { root, put } = app();
+    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.2')\n  }\n}\n");
+    expect(problems(root)).toEqual(['app/android/build.gradle takes the google-services Gradle plugin at 4.4.2; every app builds with 4.4.4']);
+    put('app/android/build.gradle', 'buildscript {}\n');
+    expect(problems(root)).toEqual(['app/android/build.gradle names no com.google.gms:google-services plugin; every app builds with 4.4.4']);
   });
 
   it("reports the emulators' secrets file committed", () => {

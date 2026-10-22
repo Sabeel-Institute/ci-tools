@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says; the Hosting site, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -117,9 +117,41 @@ Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
 to the build it installed, and `scripts/seed-emulators.mjs` seeds the
 emulators for them, run with node from the app's root. Its `.github/dependabot.yml` leaves out
 `github-actions`: this repository's Dependabot updates the actions in the
-templates, and the app takes them with its next pin. Its `build.gradle`
-signs releases with the properties file `SABEEL_KEYSTORE_PROPERTIES` names,
-which `ci-platform` sets in CI, and fails closed without it.
+templates, and the app takes them with its next pin.
+
+Its Android build, held by `check-app`:
+
+- `app/android/app/build.gradle` signs releases with the properties file
+  `SABEEL_KEYSTORE_PROPERTIES` names, which `ci-platform` sets in CI, and
+  stops a release it cannot sign: without a key AGP creates no
+  `validateSigningRelease` task and packages the release unsigned. A null
+  signing config, the pre-merge build's, passes:
+
+  ```groovy
+  gradle.taskGraph.whenReady { graph ->
+      def releaseSigning = android.buildTypes.release.signingConfig
+      def packagesRelease = graph.allTasks.any { it.project == project && it.name ==~ /^(package|sign)Release(Bundle)?$/ }
+      if (packagesRelease && releaseSigning != null && releaseSigning.storeFile == null) {
+          throw new GradleException("No release key: …")
+      }
+  }
+  ```
+- `app/android/build.gradle` takes the google-services plugin at 4.4.4.
+- `AndroidManifest.xml` makes the functions' channel, `PUSH_CHANNEL_ID` in
+  `packages/shared/src`, the default: `<meta-data
+  android:name="com.google.firebase.messaging.default_notification_channel_id"
+  android:value="…"/>`.
+- `.gitignore` covers `*.jks`, `*.keystore`, `*service-account*.json` and
+  `*firebase-adminsdk*.json` (keep `!app/android/app/debug.keystore`).
+
+Its Hosting site, LMS's shape, held by `check-app`: one site in
+`firebase.json`; `X-Frame-Options: DENY`, `Content-Security-Policy:
+frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy: strict-origin-when-cross-origin` on `!/__/**` and on no other
+source (Firebase's `/__/` pages are framed by sign-in); `/_expo/static/**`
+and `/assets/**` cached `public, max-age=31536000, immutable`; the
+single-page rewrite to `/index.html` from `!/_expo/**` alone, so a missing
+chunk is a 404; and a `default` alias in `.firebaserc`.
 
 ## Sentry
 

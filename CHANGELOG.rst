@@ -4,6 +4,15 @@ Changelog
 Unreleased
 ----------
 
+- ``check-app`` holds more of each app to one shape: the Hosting site
+  (security headers on ``!/__/**`` only, immutable ``/_expo/static/**`` and
+  ``/assets/**``, the single-page rewrite from ``!/_expo/**``), a
+  ``default`` alias in ``.firebaserc``, Android's default notification
+  channel naming ``PUSH_CHANNEL_ID``, the google-services plugin at 4.4.4,
+  ``build.gradle`` stopping a release it cannot sign
+  (``gradle.taskGraph.whenReady``, Kanban's shape), and ``.gitignore``
+  covering ``*.jks``, ``*.keystore``, ``*service-account*.json`` and
+  ``*firebase-adminsdk*.json``.
 - Sentry, one way in every app. The DSNs are always
   ``EXPO_PUBLIC_SENTRY_DSN_NATIVE`` and ``EXPO_PUBLIC_SENTRY_DSN_WEB``;
   ``build.sentryDsnVariable`` (and the ``build`` section) is gone. The org and

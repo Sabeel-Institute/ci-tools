@@ -152,6 +152,137 @@ export function portProblems(root = '.') {
   return found;
 }
 
+/** Headers on every page Hosting serves but Firebase's own (/__/, whose auth handler is framed). */
+export const SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+const NOT_FIREBASE = '!/__/**';
+/** Directories whose files are named by their content, so a browser may keep them for good. */
+export const IMMUTABLE = { '/_expo/static/**': 'public, max-age=31536000, immutable', '/assets/**': 'public, max-age=31536000, immutable' };
+/** The single-page app's rewrite, which leaves Metro's chunks out: a missing one is a 404, not index.html run as JavaScript. */
+export const SPA_REWRITE = { source: '!/_expo/**', destination: '/index.html' };
+
+/** firebase.json's Hosting site and .firebaserc against the one shape every app serves. */
+export function hostingProblems(root = '.') {
+  const found = [];
+  const hosting = JSON.parse(readFileSync(join(root, 'firebase.json'), 'utf8')).hosting;
+  if (!hosting || typeof hosting !== 'object' || Array.isArray(hosting)) {
+    return ['firebase.json must have one Hosting site, an object under "hosting": Deploy Web publishes one'];
+  }
+  const rules = Array.isArray(hosting.headers) ? hosting.headers : [];
+  const valueOf = (rule, key) => rule?.headers?.find((header) => header.key?.toLowerCase() === key.toLowerCase())?.value;
+  const guarded = rules.find((rule) => rule.source === NOT_FIREBASE);
+  if (!guarded) {
+    found.push(`firebase.json hosting has no headers rule for ${NOT_FIREBASE}, every page but Firebase's own: it sets `
+      + Object.entries(SECURITY_HEADERS).map(([key, value]) => `${key}: ${value}`).join(', '));
+  }
+  for (const [key, value] of guarded ? Object.entries(SECURITY_HEADERS) : []) {
+    const set = valueOf(guarded, key);
+    const right = key === 'Content-Security-Policy' ? set?.split(';').map((part) => part.trim()).includes(value) : set === value;
+    if (!right) found.push(`firebase.json hosting does not set ${key}: ${value} on ${NOT_FIREBASE}${set === undefined ? '' : ` (it sets ${JSON.stringify(set)})`}`);
+  }
+  for (const rule of rules.filter((other) => other.source !== NOT_FIREBASE)) {
+    for (const key of ['X-Frame-Options', 'Content-Security-Policy'].filter((name) => valueOf(rule, name) !== undefined)) {
+      found.push(`firebase.json hosting sets ${key} on ${rule.source}; set it on ${NOT_FIREBASE} only, so Firebase's own /__/ pages, which sign-in frames, keep working`);
+    }
+  }
+  for (const [source, value] of Object.entries(IMMUTABLE)) {
+    if (valueOf(rules.find((rule) => rule.source === source), 'Cache-Control') !== value) {
+      found.push(`firebase.json hosting does not cache ${source} as "${value}": its files are named by their content`);
+    }
+  }
+  const rewrites = (Array.isArray(hosting.rewrites) ? hosting.rewrites : []).filter((rewrite) => rewrite.destination === SPA_REWRITE.destination);
+  if (!rewrites.some((rewrite) => rewrite.source === SPA_REWRITE.source) || rewrites.some((rewrite) => rewrite.source !== SPA_REWRITE.source)) {
+    found.push(`firebase.json hosting must rewrite to ${SPA_REWRITE.destination} from "${SPA_REWRITE.source}" alone, so a missing chunk under /_expo/ is a 404 rather than index.html served as JavaScript`
+      + (rewrites.length ? ` (it rewrites from ${rewrites.map((rewrite) => JSON.stringify(rewrite.source)).join(', ')})` : ''));
+  }
+  let projects;
+  try {
+    projects = JSON.parse(readFileSync(join(root, '.firebaserc'), 'utf8')).projects;
+  } catch (error) {
+    return [...found, `.firebaserc: cannot read it: ${error.message}`];
+  }
+  if (typeof projects?.default !== 'string' || !projects.default) {
+    found.push(`.firebaserc has no "default" project alias${projects && Object.keys(projects).length ? ` (it has ${Object.keys(projects).join(', ')})` : ''}: firebase and the push checks use the default`);
+  }
+  return found;
+}
+
+const MANIFEST = 'app/android/app/src/main/AndroidManifest.xml';
+const DEFAULT_CHANNEL = 'com.google.firebase.messaging.default_notification_channel_id';
+
+/**
+ * The Android notification channel a push lands in when a send names none:
+ * the functions' own, PUSH_CHANNEL_ID in @sabeel/shared. Without it Android
+ * makes "Miscellaneous", a channel nobody recognises and nothing can remove.
+ */
+export function pushChannelProblems(root = '.') {
+  const sources = scriptFiles(root, 'packages/shared/src').filter((path) => !/\.test\.[cm]?[jt]sx?$/.test(path));
+  const channels = sources.flatMap((path) => [...readFileSync(join(root, path), 'utf8').matchAll(/export const PUSH_CHANNEL_ID\s*=\s*['"]([^'"]+)['"]/g)].map((match) => match[1]));
+  if (channels.length !== 1) return [`packages/shared/src must export one PUSH_CHANNEL_ID, the channel the functions send on; it exports ${channels.length}`];
+  const [channel] = channels;
+  const manifest = readIf(root, MANIFEST);
+  if (manifest === undefined) return [`${MANIFEST} is missing`];
+  const attribute = (tag, name) => new RegExp(`\\bandroid:${name}\\s*=\\s*"([^"]*)"`).exec(tag)?.[1];
+  const named = [...manifest.matchAll(/<meta-data\b[^>]*>/g)].map((match) => match[0]).filter((tag) => attribute(tag, 'name') === DEFAULT_CHANNEL);
+  if (named.length !== 1) {
+    return [`${MANIFEST} has no ${DEFAULT_CHANNEL} meta-data, so a push sent without a channel lands in Android's "Miscellaneous":\n`
+      + `    <meta-data android:name="${DEFAULT_CHANNEL}" android:value="${channel}"/>`];
+  }
+  const value = attribute(named[0], 'value');
+  return value === channel ? [] : [`${MANIFEST} makes ${value} the default notification channel; the functions send on PUSH_CHANNEL_ID ${channel}`];
+}
+
+/** The google-services Gradle plugin every app builds with. */
+export const GOOGLE_SERVICES_PLUGIN = '4.4.4';
+
+/**
+ * A release Gradle cannot sign stops, rather than coming out unsigned: AGP
+ * creates no validateSigningRelease task without a key, and packages the
+ * release anyway. The pre-merge build, which sets the release signing config
+ * to null on purpose, passes.
+ */
+export function releaseSigningProblem(gradle) {
+  const start = /gradle\.taskGraph\.whenReady\s*\{/.exec(gradle);
+  let block = '';
+  if (start) {
+    let depth = 0;
+    for (let index = start.index + start[0].length - 1; index < gradle.length; index += 1) {
+      depth += gradle[index] === '{' ? 1 : gradle[index] === '}' ? -1 : 0;
+      if (depth === 0) {
+        block = gradle.slice(start.index, index + 1);
+        break;
+      }
+    }
+  }
+  const asks = [/\(package\|sign\)Release\(Bundle\)\?/, /buildTypes\.release\.signingConfig\b/, /!=\s*null/, /\.storeFile\s*==\s*null/, /throw new GradleException\(/];
+  if (asks.every((ask) => ask.test(block))) return null;
+  return 'app/android/app/build.gradle does not stop a release it cannot sign: without a key AGP packages it unsigned\n'
+    + '    rather than failing. Add, after the android block:\n'
+    + '        gradle.taskGraph.whenReady { graph ->\n'
+    + '            def releaseSigning = android.buildTypes.release.signingConfig\n'
+    + '            def packagesRelease = graph.allTasks.any { it.project == project && it.name ==~ /^(package|sign)Release(Bundle)?$/ }\n'
+    + '            if (packagesRelease && releaseSigning != null && releaseSigning.storeFile == null) {\n'
+    + '                throw new GradleException("No release key: …")\n'
+    + '            }\n'
+    + '        }';
+}
+
+/**
+ * Files a public repository must never take, by example: the release
+ * keystore, and service-account keys as Google's consoles name them. Each
+ * must be ignored wherever it lands.
+ */
+export const KEY_FILES = {
+  'release.jks': '*.jks',
+  'app/android/app/release.keystore': '*.keystore',
+  'play-service-account.json': '*service-account*.json',
+  'example-project-firebase-adminsdk-abc12-0123456789.json': '*firebase-adminsdk*.json',
+};
+
 export function problems(root = '.') {
   const found = [];
   const attempt = (check) => {
@@ -173,6 +304,8 @@ export function problems(root = '.') {
     }
   };
   attempt(() => PRIVATE_FILES.filter((path) => !ignored(path)).map((path) => `.gitignore does not cover ${path}, which CI writes from a secret`));
+  attempt(() => Object.entries(KEY_FILES).filter(([path]) => !ignored(path))
+    .map(([path, pattern]) => `.gitignore does not cover ${pattern} (${path}, say): a key committed to a public repository stays readable in its history`));
   attempt(() => GENERATED_FILES.filter((path) => !ignored(path))
     .map((path) => `.gitignore does not cover ${path}, which every build writes, so each build is marked as built from uncommitted changes`));
   attempt(() => {
@@ -213,8 +346,17 @@ export function problems(root = '.') {
     if (others.length) found.push(`app/android/app/build.gradle names ${others.join(', ')}; the variable is SABEEL_KEYSTORE_PROPERTIES`);
     const sentry = sentryGradleProblem(gradle);
     if (sentry) found.push(sentry);
+    const signing = releaseSigningProblem(gradle);
+    if (signing) found.push(signing);
     return found;
   });
+  attempt(() => {
+    const version = /com\.google\.gms:google-services:([\w.-]+)/.exec(readIf(root, 'app/android/build.gradle') ?? '')?.[1];
+    return version === GOOGLE_SERVICES_PLUGIN ? []
+      : [`app/android/build.gradle ${version ? `takes the google-services Gradle plugin at ${version}` : 'names no com.google.gms:google-services plugin'}; every app builds with ${GOOGLE_SERVICES_PLUGIN}`];
+  });
+  attempt(() => hostingProblems(root));
+  attempt(() => pushChannelProblems(root));
   attempt(() => {
     // The bundles carry debug ids, which match a crash to its source map with
     // no release name to keep in step; Sentry's Metro config adds them.
