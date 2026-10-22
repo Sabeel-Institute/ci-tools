@@ -42,15 +42,15 @@ differed only by accident.
 
    Merged: the push checks. `check-push` asks FCM and both Apple services
    (Kanban's `check-apple-push` is `check-push apple`), `send-test-push` takes
-   the destination as `key=value` pairs. All three apps keep one project in
-   `.firebaserc`, the same APNs key, and web push, so none needs a
-   `ci-tools.json` setting.
+   the destination as `key=value` pairs, and `check-web-push` runs in every
+   web build. All three apps keep one project in `.firebaserc`, the same APNs
+   key, and web push, so none needs a `ci-tools.json` setting.
 3. **The apps standardised where they differed by accident** (each in that
    app's migration pull request, with its tests):
    - one Android keystore variable name read by every app's Gradle build
      (`ci-platform` writes both LMS's and TT's names today);
-   - the same build hooks under the same names (build info, version check, web
-     push check), so tools call npm scripts instead of probing for files;
+   - the same build hooks under the same names (build info, version check), so
+     tools call npm scripts instead of probing for files;
    - one push sender the push tools load from source (README, "Push"): LMS and
      TT give `sendToApns` a message per send, as Kanban's does; Kanban's
      `fcmMessage` stops taking the token, as LMS's and TT's; each app moves

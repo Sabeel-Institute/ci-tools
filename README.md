@@ -37,7 +37,7 @@ root, the directory holding `ci-tools.json`.
 | `ci-avd` | Boot an emulator on a GitHub runner |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
 | `check-push [fcm\|apple]` | Against the real project: FCM and both Apple services accept a message from it, and refuse a token that cannot exist with an answer the functions prune on |
-| `check-web-push` | The exported web bundle carries a VAPID public key and the permission path |
+| `check-web-push` | The exported web bundle carries a VAPID public key and the permission path; `ci-platform web` runs it on every web build |
 | `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |

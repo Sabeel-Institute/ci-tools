@@ -19,5 +19,6 @@ Unreleased
   ``check-push apple`` is Kanban's ``check-apple-push``), ``check-web-push``
   and ``send-test-push``. They send through the app's own functions code,
   which each app brings to the contract in README's "Push" when it migrates
-  (``docs/PLAN.md``, stage 3). ``check-web-push`` reads the scripts
-  ``index.html`` loads and requires the key to be a P-256 point.
+  (``docs/PLAN.md``, stage 3). ``ci-platform web`` runs ``check-web-push`` on
+  every web build, not only when the app has a copy; the check reads the
+  scripts ``index.html`` loads and requires the key to be a P-256 point.

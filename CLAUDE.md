@@ -18,7 +18,7 @@ fine.
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
   that differs only by accident changes instead (`docs/PLAN.md`, stage 3).
   Two holdovers remain until then: `ci-platform` probes for an app's
-  `gen-build-info`, `build-aab` and `check-web-push` scripts, and
+  `gen-build-info` and `build-aab` scripts, and
   `check-release` boots a local AVD with the app's `scripts/emulator.sh`.
 - **Scripts that run before `npm ci` use Node built-ins only:** `ci-platform`,
   `ci-play`, `ci-hosting-smoke`, `ci-functions require-ci`, `ci-premerge
