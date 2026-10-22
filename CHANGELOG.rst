@@ -4,6 +4,10 @@ Changelog
 Unreleased
 ----------
 
+- The Linux runners take ffmpeg 7.0.2 as a static build from
+  ffmpeg-static's ``b6.1.1`` GitHub release, checksum-pinned, with ffprobe,
+  in place of apt: the runners' apt mirror stalled about one ffmpeg install in
+  five, for up to 41 minutes, and failed pull requests at the step's timeout.
 - ``build-web`` and ``build-aab`` refuse while ``EXPO_PUBLIC_USE_EMULATORS``
   is set in the shell or in an ``app/.env*`` file, as LMS's
   ``web-release.mjs`` did before Hosting's predeploy became ``build-web``: a
