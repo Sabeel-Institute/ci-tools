@@ -20,3 +20,10 @@ Unreleased
   ``ci.emulatorSecrets``, ``check-app`` before the app's own tests.
 - ``sabeel-ci check-app``: what ci-tools assumes of an app, including the
   checks that were spread through the apps' copies of these tests.
+- The push checks, merged: ``check-push`` (FCM and both Apple services;
+  ``check-push apple`` is Kanban's ``check-apple-push``), ``check-web-push``
+  and ``send-test-push``. They send through the app's own functions code,
+  which each app brings to the contract in README's "Push" when it migrates
+  (``docs/PLAN.md``, stage 3). ``ci-platform web`` runs ``check-web-push`` on
+  every web build, not only when the app has a copy; the check reads the
+  scripts ``index.html`` loads and requires the key to be a P-256 point.

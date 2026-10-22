@@ -41,12 +41,31 @@ differed only by accident.
    `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
    `test-emulator.sh`, `free-emulator-ports.sh`). Done: `ci.yml` and
    `codeql.yml`.
+
+   Kanban's `build-aab.sh` gates); `preflight-metro`, `check-version`,
+   `gen-build-info`, `check-text-sources`; emulator control (`emulator.sh`,
+   `emulators.sh`, `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+
+   Merged: the push checks. `check-push` asks FCM and both Apple services
+   (Kanban's `check-apple-push` is `check-push apple`), `send-test-push` takes
+   the destination as `key=value` pairs, and `check-web-push` runs in every
+   web build. All three apps keep one project in `.firebaserc`, the same APNs
+   key, and web push, so none needs a `ci-tools.json` setting.
 3. **The apps standardised where they differed by accident** (each in that
    app's migration pull request, with its tests):
    - one Android keystore variable name read by every app's Gradle build
      (`ci-platform` writes both LMS's and TT's names today);
-   - the same build hooks under the same names (build info, version check, web
-     push check), so tools call npm scripts instead of probing for files;
+   - the same build hooks under the same names (build info, version check), so
+     tools call npm scripts instead of probing for files;
+   - one push sender the push tools load from source (README, "Push"): LMS and
+     TT give `sendToApns` a message per send, as Kanban's does; Kanban's
+     `fcmMessage` stops taking the token, as LMS's and TT's; each app moves
+     `DEAD_TOKEN_CODES` from `messaging.ts` to `fcm.ts` and exports it (Kanban's
+     is `DEAD_FCM_CODES`), and adds `functions/src/testPush.ts` with a unit
+     test; the APNs key for a test push is `~/.apns/AuthKey_<id>.p8` (LMS
+     and TT look under `~/.config/sabeel-lms/` and
+     `~/.config/sabeel-time-tracker/` today); npm scripts `check:push` and
+     `check:web-push` in every app;
    - one emulator port layout per base (+0 Firestore … +6 logging, then fixed
      offsets for storage, tasks, eventarc, web dev servers and the media
      store), declared once in `ci-tools.json`;

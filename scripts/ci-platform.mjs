@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSyn
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { checkWebPush } from './check-web-push.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { maxBuffer: 64 * 1024 * 1024, ...options });
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -109,9 +110,9 @@ function android() {
 
 function web() {
   command('npm', ['run', 'web:export', '-w', '@sabeel/app'], { stdio: 'inherit' });
-  if (existsSync('scripts/check-web-push.mjs')) command('node', ['scripts/check-web-push.mjs'], { stdio: 'inherit' });
-  const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
   const source = resolve('app/dist-web');
+  console.log(checkWebPush(source));
+  const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
   const hashes = treeHashes(source);
   if (!hashes['index.html'] || Object.keys(hashes).some((path) => /\.map$|(^|\/)\.env/.test(path))) {
     throw new Error('Web artifact must contain index.html and no source maps or environment files');
