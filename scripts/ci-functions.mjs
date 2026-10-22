@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,9 +10,11 @@ import { fileURLToPath } from 'node:url';
  *   sabeel-ci ci-functions require-ci        # CI passed on this commit
  *   sabeel-ci ci-functions plan              # build; refuse to delete a live function
  *   sabeel-ci ci-functions verify --since T  # after a deploy: callables, probe, error logs
+ *   sabeel-ci ci-functions health            # every callable answers (no credentials)
  *
- * The project is FIREBASE_PROJECT_ID. Google calls go through gcloud's active
- * credentials: the workflow's federated identity in CI, your own account here.
+ * The project is FIREBASE_PROJECT_ID, or for `health` the default in
+ * .firebaserc. Google calls go through gcloud's active credentials: the
+ * workflow's federated identity in CI, your own account here.
  * `verify` calls probeQueries when the bundle has it, with PROBE_TOKEN.
  */
 
@@ -126,13 +129,9 @@ async function call(url, init, attempts = 4) {
   }
 }
 
-async function verify() {
-  const id = project();
-  const since = process.argv[process.argv.indexOf('--since') + 1];
-  if (!process.argv.includes('--since') || Number.isNaN(Date.parse(since))) throw new Error('verify needs --since <ISO time the deploy started>');
-  const endpoints = loadEndpoints();
+/** Every callable, called with no arguments: each must answer for itself. */
+async function probeCallables(id, endpoints) {
   const problems = [];
-
   const callables = endpoints.filter((endpoint) => endpoint.kind === 'callable');
   for (let i = 0; i < callables.length; i += 6) {
     await Promise.all(callables.slice(i, i + 6).map(async ({ name, region }) => {
@@ -140,11 +139,35 @@ async function verify() {
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"data":{}}' });
       const body = response.error ? '' : await response.text();
       if (response.error || !callableAnswered(response.headers.get('content-type'), body)) {
-        problems.push(`${name} did not answer for itself (${response.error?.message ?? `${response.status} ${body.slice(0, 80)}`})`);
+        problems.push(`${name} did not answer for itself (${response.error?.message ?? `${response.status} ${body.replace(/\s+/g, ' ').slice(0, 80)}`})`);
       }
     }));
   }
   console.log(`${callables.length - problems.length} of ${callables.length} callables answered for themselves`);
+  return problems;
+}
+
+/**
+ * Production, between deploys. Google updates a running function's runtime
+ * underneath it (automatic base-image updates), so a function can stop
+ * starting with nothing deployed: on 2026-10-22 a Node 22 runtime update left
+ * every function of all three apps unable to start for about 90 minutes, and
+ * the first to notice was a person who could not sign in. Health runs this
+ * every half hour so that a failed run, which GitHub emails, says so first.
+ */
+async function health() {
+  const id = JSON.parse(readFileSync('.firebaserc', 'utf8')).projects?.default;
+  if (!id) throw new Error('.firebaserc names no default project');
+  const problems = await probeCallables(id, loadEndpoints());
+  if (problems.length) throw new Error(`${id}'s functions are failing:\n- ${problems.join('\n- ')}`);
+}
+
+async function verify() {
+  const id = project();
+  const since = process.argv[process.argv.indexOf('--since') + 1];
+  if (!process.argv.includes('--since') || Number.isNaN(Date.parse(since))) throw new Error('verify needs --since <ISO time the deploy started>');
+  const endpoints = loadEndpoints();
+  const problems = await probeCallables(id, endpoints);
 
   const probe = endpoints.find((endpoint) => endpoint.name === 'probeQueries');
   if (probe) {
@@ -181,5 +204,6 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   if (task === 'require-ci') requireCi();
   else if (task === 'plan') plan();
   else if (task === 'verify') await verify();
-  else throw new Error('Unknown functions task: use require-ci, plan or verify');
+  else if (task === 'health') await health();
+  else throw new Error('Unknown functions task: use require-ci, plan, verify or health');
 }

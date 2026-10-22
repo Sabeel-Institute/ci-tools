@@ -4,6 +4,7 @@ import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
 const workflow = renderAll(full).get('functions-deploy.yml');
+const health = renderAll(full).get('health.yml');
 
 describe('functions deploy guards', () => {
   it('reads each function and its trigger from the bundle', () => {
@@ -77,5 +78,19 @@ describe('the functions deploy workflow', () => {
     expect(workflow).toContain('vars.GCP_FUNCTIONS_WORKLOAD_IDENTITY_PROVIDER');
     expect(workflow).toContain('vars.GCP_FUNCTIONS_SERVICE_ACCOUNT');
     expect(workflow).not.toMatch(/credentials_json|GOOGLE_APPLICATION_CREDENTIALS|FIREBASE_TOKEN/);
+  });
+});
+
+describe('the health workflow', () => {
+  it('calls every callable every half hour, and by hand', () => {
+    expect(health).toMatch(/schedule:\n {4}- cron: "7,37 \* \* \* \*"/);
+    expect(health).toContain('workflow_dispatch:');
+    expect(health).toContain('run: sabeel-ci ci-functions health');
+  });
+
+  it('needs no credentials and can change nothing', () => {
+    expect(health).toMatch(/^permissions:\n {2}contents: read\n/m);
+    for (const forbidden of ['secrets.', 'id-token', 'google-github-actions/auth', 'environment:', 'firebase deploy'])
+      expect(health).not.toContain(forbidden);
   });
 });

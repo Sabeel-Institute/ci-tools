@@ -77,6 +77,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing through `publish-play` |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
+| `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `android`, `ios` |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
@@ -254,6 +255,20 @@ for an app's own scripts. Each app's `package.json` runs them too:
 then refuse a bundle or export that does not carry HEAD's commit or marks it
 `+`. The deploy log is `docs/PHASE_STATUS.md`, with one entry per release
 headed `### <date> — <summary> — v<version>`, written with the version bump.
+
+## Cloud Functions in production
+
+Google updates a deployed function's runtime underneath it: automatic
+base-image updates move every revision onto each new runtime release, with no
+deploy and no revision of ours. A release that does not start leaves every
+function unable to start a new instance, and every call answers Google's HTML
+"500 Server Error", until Google fixes it. Nothing about a deploy shows that,
+so the Health workflow (`health.yml`) calls every callable with no arguments
+at :07 and :37 past each hour, as any client can, with no credentials. Each
+must answer for itself, with a result or one of its own JSON errors. A failed
+run fails the workflow, and GitHub emails a failed scheduled run to whoever
+last changed its schedule: the owner, whose account commits the rendered
+workflows.
 
 ## Emulator ports
 
