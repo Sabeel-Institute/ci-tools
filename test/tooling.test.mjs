@@ -5,15 +5,41 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
-import { portProblems, problems } from '../scripts/check-app.mjs';
+import { hostingProblems, portProblems, problems, pushChannelProblems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
-import { ports, suitePorts } from '../lib/ports.mjs';
+import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
+import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
-/** How build.gradle finds the release key: the one variable ci-platform sets. */
-const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n";
+/** build.gradle's stop for a release it cannot sign, as Kanban wrote it. */
+const RELEASE_KEY = `gradle.taskGraph.whenReady { graph ->
+    def releaseSigning = android.buildTypes.release.signingConfig
+    def packagesRelease = graph.allTasks.any { it.project == project && it.name ==~ /^(package|sign)Release(Bundle)?$/ }
+    if (packagesRelease && releaseSigning != null && releaseSigning.storeFile == null) {
+        throw new GradleException("No release key: restore it from the vault; a release is never left unsigned.")
+    }
+}
+`;
+/** How build.gradle finds the release key, the one variable ci-platform sets, stops without one, and applies Sentry's upload. */
+const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
+  + RELEASE_KEY + SENTRY_GRADLE;
+const METRO = "const { getSentryExpoConfig } = require('@sentry/react-native/metro');\nmodule.exports = getSentryExpoConfig(__dirname);\n";
+/** LMS's Hosting site, the one shape. */
+const HOSTING = {
+  public: 'app/dist-web',
+  rewrites: [{ source: '/privacy', destination: '/privacy.html' }, { source: '!/_expo/**', destination: '/index.html' }],
+  headers: [
+    { source: '**', headers: [{ key: 'Cache-Control', value: 'no-cache, must-revalidate' }] },
+    { source: '!/__/**', headers: [{ key: 'X-Frame-Options', value: 'DENY' }, { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+      { key: 'X-Content-Type-Options', value: 'nosniff' }, { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }] },
+    { source: '/_expo/static/**', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
+    { source: '/assets/**', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] },
+  ],
+};
+const CHANNEL = '<meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sabeel-alerts"/>';
+const MANIFEST = (meta) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n  <application>\n    ${meta}\n  </application>\n</manifest>\n`;
 const fixtures = [];
 
 afterEach(() => {
@@ -52,18 +78,25 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n*.jks\n*.keystore\n*service-account*.json\n*firebase-adminsdk*.json\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n  }\n}\n");
+  put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL));
+  put('.firebaserc', { projects: { default: 'example-project' } });
+  put('app/metro.config.js', METRO);
+  put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_NATIVE;\n');
+  put('app/src/sentry.web.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_WEB;\n');
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
-  put('functions/.env.demo-example', 'MEDIA_BUCKET=local\n');
+  put('functions/.env.demo-sabeel-example', 'MEDIA_BUCKET=local\n');
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
-  put('firebase.json', { emulators: FIREBASE_EMULATORS });
+  put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
   put('app/src/env.ts', ENV_TS);
-  put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-example';\n");
+  put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-sabeel-example';\n");
+  put('packages/shared/src/notify.ts', "export const PUSH_CHANNEL_ID = 'sabeel-alerts';\n");
   put('scripts/seed.mjs', "import { ports } from '@sabeel-institute/ci-tools/lib/ports.mjs';\nconst wait = 61000; // ms, not a port\n");
   put('package.json', { scripts: { 'dev:web': 'cd app && expo start --web --port $(sabeel-ci ports web)', test: 'vitest run' } });
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -84,15 +117,19 @@ describe('ci-tools.json', () => {
     const { name: _name, ...nameless } = minimal;
     expect(() => validate(nameless)).toThrow(/name is required/);
     expect(() => validate({ ...minimal, nmae: 'x' })).toThrow(/unknown key nmae/);
-    expect(() => validate({ ...minimal, name: '' })).toThrow(/invalid value/);
+    expect(() => validate({ ...minimal, name: '' })).toThrow(/name must be lowercase words/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, mediaStroe: true } })).toThrow(/unknown key ci\.mediaStroe/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, browserSuites: ['test:e2e'] } })).toThrow(/ci\.browserSuites/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, emulatorSecrets: { SENTRY_DSN: "it's" } } })).toThrow(/ci\.emulatorSecrets/);
-    const { build: _build, ...buildless } = minimal;
-    expect(() => validate(buildless)).toThrow(/build is required/);
-    expect(() => validate({ ...minimal, build: {} })).toThrow(/build\.sentryDsnVariable is required/);
-    expect(() => validate({ ...minimal, build: { ...minimal.build, sentryDsn: 'x' } })).toThrow(/unknown key build\.sentryDsn;/);
-    expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/build\.sentryDsnVariable has an invalid value/);
+    const { sentry: _sentry, ...sentryless } = minimal;
+    expect(() => validate(sentryless)).toThrow(/sentry is required/);
+    expect(() => validate({ ...minimal, sentry: { org: 'example-org' } })).toThrow(/sentry\.projects is required/);
+    expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, projects: { native: 'n', web: 'w' } } })).toThrow(/sentry\.projects\.functions is required/);
+    expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, projects: { ...minimal.sentry.projects, ios: 'i' } } })).toThrow(/unknown key sentry\.projects\.ios;/);
+    for (const org of ['Example', 'has space', '-lead', '', 'a'.repeat(51)]) {
+      expect(() => validate({ ...minimal, sentry: { ...minimal.sentry, org } }), org).toThrow(/sentry\.org has an invalid value/);
+    }
+    expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'EXPO_PUBLIC_SENTRY_DSN' } })).toThrow(/unknown key build;/);
     expect(() => validate({ ...minimal, ios: { backgroundPlayback: 'yes' } })).toThrow(/ios\.backgroundPlayback has an invalid value/);
     expect(() => validate({ ...minimal, ios: { releaseNotes: true } })).toThrow(/unknown key ios\.releaseNotes/);
     for (const certificate of ['ab:'.repeat(31) + 'ab', 'AB'.repeat(32), 'AB:'.repeat(30) + 'AB']) {
@@ -109,11 +146,11 @@ describe('ci-tools.json', () => {
 describe('ci-tools.json emulators', () => {
   const settings = (emulators) => ({ ...minimal, emulators: { ...minimal.emulators, ...emulators } });
 
-  it('is required, with a base and a project', () => {
+  it('is required, with a base', () => {
     const { emulators: _emulators, ...portless } = minimal;
     expect(() => validate(portless)).toThrow(/emulators is required/);
-    expect(() => validate({ ...minimal, emulators: { base: 61900 } })).toThrow(/emulators\.project is required/);
-    expect(() => validate({ ...minimal, emulators: { project: 'demo-example' } })).toThrow(/emulators\.base is required/);
+    expect(() => validate({ ...minimal, emulators: {} })).toThrow(/emulators\.base is required/);
+    expect(() => validate({ ...minimal, emulators: { base: 61900, project: 'demo-example' } })).toThrow(/unknown key emulators\.project/);
     expect(validate(minimal)).toEqual(minimal);
     expect(validate(full)).toEqual(full);
   });
@@ -124,8 +161,12 @@ describe('ci-tools.json emulators', () => {
     }
   });
 
-  it('takes only a demo- project, so the emulators never reach a real one', () => {
-    expect(() => validate(settings({ project: 'oursabeel-lms' }))).toThrow(/emulators\.project must be a demo- project id/);
+  it('runs under demo-sabeel-<name>, so the name must make a project id', () => {
+    expect(emulatorProject(full)).toBe('demo-sabeel-example');
+    for (const name of ['Example', 'time_tracker', 'time-', '-lms', 'a'.repeat(19), '']) {
+      expect(() => validate({ ...minimal, name }), name).toThrow(/name must be lowercase words joined by hyphens, at most 18 characters/);
+    }
+    expect(validate({ ...minimal, name: 'time-tracker', emulators: { base: 61000 } }).name).toBe('time-tracker');
   });
 
   it('keeps extras inside the block, clear of the layout and of each other', () => {
@@ -138,10 +179,10 @@ describe('ci-tools.json emulators', () => {
   });
 
   it("refuses another checkout's block, or a block other than the project's own", () => {
-    expect(() => validate(settings({ base: 61200 }))).toThrow(/61200 is the block of demo-sabeel-kanban, not of demo-example/);
+    expect(() => validate(settings({ base: 61200 }))).toThrow(/61200 is the block of demo-sabeel-kanban, not of demo-sabeel-example/);
     expect(() => validate(settings({ base: 61100 }))).toThrow(/legacy sabeel-recording-app/);
-    expect(() => validate(settings({ base: 61900, project: 'demo-sabeel' }))).toThrow(/demo-sabeel owns the block at 61000, not 61900/);
-    expect(validate(settings({ base: 61000, project: 'demo-sabeel' })).emulators.base).toBe(61000);
+    expect(() => validate({ ...minimal, name: 'lms' })).toThrow(/demo-sabeel-lms \(name lms\) owns the block at 61300, not 61900/);
+    expect(validate({ ...minimal, name: 'lms', emulators: { base: 61300 } }).emulators.base).toBe(61300);
   });
 });
 
@@ -249,14 +290,135 @@ describe('check-app', () => {
     put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>', buildNumber: '3000' } } });
     put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.3.0 · October 2026*\n');
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
-    const found = problems(root);
-    expect(found).toHaveLength(5);
-    expect(found[0]).toMatch(/does not cover app\/android\/keystore\.properties/);
-    expect(found[1]).toMatch(/does not cover app\/src\/build-info\.ts, which every build writes/);
-    expect(found[2]).toMatch(/identifier/);
-    expect(found[3]).toMatch(/no deploy-log entry for v0\.3\.0/);
-    expect(found[4]).toMatch(/out of step/);
+    expect(problems(root)).toEqual([
+      expect.stringMatching(/does not cover app\/android\/keystore\.properties/),
+      '.gitignore does not cover *.jks (release.jks, say): a key committed to a public repository stays readable in its history',
+      expect.stringMatching(/does not cover \*\.keystore \(app\/android\/app\/release\.keystore, say\)/),
+      expect.stringMatching(/does not cover \*service-account\*\.json/),
+      expect.stringMatching(/does not cover \*firebase-adminsdk\*\.json/),
+      expect.stringMatching(/does not cover app\/src\/build-info\.ts, which every build writes/),
+      expect.stringMatching(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/),
+      expect.stringMatching(/identifier/),
+      expect.stringMatching(/no deploy-log entry for v0\.3\.0/),
+      expect.stringMatching(/out of step/),
+    ]);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it('reports a build.gradle that applies sentry.gradle other than exactly when the build machine\'s file exists', () => {
+    const { root, put } = app();
+    const message = /^app\/android\/app\/build\.gradle must apply sentry\.gradle exactly when app\/\.env\.sentry-build-plugin exists/;
+    const versions = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    const withSentry = (block) => SIGNING.replace(SENTRY_GRADLE, block) + versions;
+    for (const block of [
+      '',
+      SENTRY_GRADLE.replace('$projectRoot/.env.sentry-build-plugin', '${rootProject.projectDir}/sentry.properties'),
+      SENTRY_GRADLE.replace('file("$projectRoot/.env.sentry-build-plugin").exists()', 'System.getenv("SENTRY_AUTH_TOKEN")'),
+      SENTRY_GRADLE.replace('.exists()) {', '.exists() || System.getenv("SENTRY_AUTH_TOKEN")) {'),
+      SENTRY_GRADLE + 'apply from: "../sentry.gradle"\n',
+    ]) {
+      put('app/android/app/build.gradle', withSentry(block));
+      expect(problems(root), block).toEqual([expect.stringMatching(message)]);
+    }
+    put('app/android/app/build.gradle', withSentry(SENTRY_GRADLE.replace('{\n', '{\n\n') + '} else {\n    logger.warn("no upload")\n}\n'));
+    expect(problems(root)).toEqual([]);
+  });
+
+  it('reports bundles without debug ids, and Sentry DSNs read under other names', () => {
+    const { root, put } = app();
+    put('app/metro.config.js', "const { getDefaultConfig } = require('expo/metro-config');\nmodule.exports = getDefaultConfig(__dirname);\n");
+    put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_ANDROID;\n');
+    put('app/src/sentry.test.ts', 'process.env.EXPO_PUBLIC_SENTRY_DSN = "x";\n');
+    expect(problems(root)).toEqual([
+      'app/metro.config.js does not build on getSentryExpoConfig from @sentry/react-native/metro, so its bundles carry no debug ids for Sentry to match their source maps by',
+      'app/src reads EXPO_PUBLIC_SENTRY_DSN_ANDROID; the Sentry DSNs are EXPO_PUBLIC_SENTRY_DSN_NATIVE (Android and iOS) and EXPO_PUBLIC_SENTRY_DSN_WEB (web)',
+      'app/src never reads EXPO_PUBLIC_SENTRY_DSN_NATIVE, which the release builds require in app/.env.local',
+    ]);
+  });
+
+  it('reports a build.gradle that would package a release it cannot sign', () => {
+    const { root, put } = app();
+    const versions = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    const message = /^app\/android\/app\/build\.gradle does not stop a release it cannot sign[\s\S]*gradle\.taskGraph\.whenReady \{ graph ->/;
+    for (const gradle of [
+      SIGNING.replace(RELEASE_KEY, ''),
+      SIGNING.replace('releaseSigning.storeFile == null', 'true'),
+      SIGNING.replace('releaseSigning != null && ', ''),
+      SIGNING.replace('/^(package|sign)Release(Bundle)?$/', '/^packageRelease$/'),
+      SIGNING.replace(/throw new GradleException\(.*\)/, 'logger.warn("unsigned")'),
+    ]) {
+      put('app/android/app/build.gradle', gradle + versions);
+      expect(problems(root), gradle).toEqual([expect.stringMatching(message)]);
+    }
+  });
+
+  it('holds the Hosting site to one shape: security headers, immutable assets, the SPA rewrite, a default project', () => {
+    const { root, put } = app();
+    const hosting = (change) => {
+      const site = structuredClone(HOSTING);
+      change(site);
+      put('firebase.json', { hosting: site, emulators: FIREBASE_EMULATORS });
+      return hostingProblems(root);
+    };
+    expect(hosting(() => {})).toEqual([]);
+    expect(hosting((site) => { site.headers.splice(1, 1); })).toEqual([
+      "firebase.json hosting has no headers rule for !/__/**, every page but Firebase's own: it sets X-Frame-Options: DENY, "
+        + "Content-Security-Policy: frame-ancestors 'none', X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin-when-cross-origin",
+    ]);
+    expect(hosting((site) => {
+      site.headers[1].headers[0].value = 'SAMEORIGIN';
+      site.headers[1].headers[1].value = "default-src 'self'; frame-ancestors 'none'";
+      site.headers[1].headers.pop();
+      site.headers[0].headers.push({ key: 'X-Frame-Options', value: 'SAMEORIGIN' });
+    })).toEqual([
+      'firebase.json hosting does not set X-Frame-Options: DENY on !/__/** (it sets "SAMEORIGIN")',
+      'firebase.json hosting does not set Referrer-Policy: strict-origin-when-cross-origin on !/__/**',
+      "firebase.json hosting sets X-Frame-Options on **; set it on !/__/** only, so Firebase's own /__/ pages, which sign-in frames, keep working",
+    ]);
+    expect(hosting((site) => { site.headers.pop(); site.rewrites[1].source = '**'; })).toEqual([
+      'firebase.json hosting does not cache /assets/** as "public, max-age=31536000, immutable": its files are named by their content',
+      'firebase.json hosting must rewrite to /index.html from "!/_expo/**" alone, so a missing chunk under /_expo/ is a 404 rather than index.html served as JavaScript (it rewrites from "**")',
+    ]);
+    put('firebase.json', { hosting: [HOSTING], emulators: FIREBASE_EMULATORS });
+    expect(hostingProblems(root)).toEqual(['firebase.json must have one Hosting site, an object under "hosting": Deploy Web publishes one']);
+    put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
+    put('.firebaserc', { projects: { dev: 'example-project' } });
+    expect(problems(root)).toEqual(['.firebaserc has no "default" project alias (it has dev): firebase and the push checks use the default']);
+  });
+
+  it("holds Android's default notification channel to the one the functions send on", () => {
+    const { root, put } = app();
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST('<meta-data android:value="sabeel-alerts" android:name="com.google.firebase.messaging.default_notification_channel_id" />'));
+    expect(pushChannelProblems(root)).toEqual([]);
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL.replace('sabeel-alerts', 'alerts')));
+    expect(pushChannelProblems(root)).toEqual([
+      'app/android/app/src/main/AndroidManifest.xml makes alerts the default notification channel; the functions send on PUSH_CHANNEL_ID sabeel-alerts',
+    ]);
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST('<meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic"/>'));
+    expect(problems(root)).toEqual([
+      'app/android/app/src/main/AndroidManifest.xml has no com.google.firebase.messaging.default_notification_channel_id meta-data, '
+        + 'so a push sent without a channel lands in Android\'s "Miscellaneous":\n'
+        + '    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sabeel-alerts"/>',
+    ]);
+    rmSync(join(root, 'packages/shared/src/notify.ts'));
+    expect(pushChannelProblems(root)).toEqual(['packages/shared/src must export one PUSH_CHANNEL_ID, the channel the functions send on; it exports 0']);
+  });
+
+  it('holds the google-services Gradle plugin at one version', () => {
+    const { root, put } = app();
+    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.2')\n  }\n}\n");
+    expect(problems(root)).toEqual(['app/android/build.gradle takes the google-services Gradle plugin at 4.4.2; every app builds with 4.4.4']);
+    put('app/android/build.gradle', 'buildscript {}\n');
+    expect(problems(root)).toEqual(['app/android/build.gradle names no com.google.gms:google-services plugin; every app builds with 4.4.4']);
+  });
+
+  it("reports the emulators' secrets file committed", () => {
+    const { root, put } = app();
+    put('functions/.secret.local', 'SENTRY_DSN=disabled\n');
+    execFileSync('git', ['add', '--force', 'functions/.secret.local'], { cwd: root });
+    expect(problems(root)).toEqual([
+      'functions/.secret.local is committed; sabeel-ci writes it from ci.emulatorSecrets, so the app keeps no copy: git rm --cached functions/.secret.local',
+    ]);
   });
 
   it('reports a build.gradle that does not take the release key from SABEEL_KEYSTORE_PROPERTIES', () => {
@@ -279,10 +441,12 @@ describe('check-app', () => {
     ]);
   });
 
-  it('reports a flow that does not take its app from native-e2e', () => {
+  it('reports a flow that does not take its app from native-e2e, and flows with no seed', () => {
     const { root, put } = app();
     put('maestro/board.yaml', 'appId: ${APP_ID}\n---\n- launchApp\n');
     put('maestro/common/back.yaml', 'appId: ${APP_ID}\n---\n- back\n');
+    expect(problems(root)).toEqual(['maestro/ holds flows, but there is no scripts/seed-emulators.mjs: native-e2e seeds the emulators for them with it']);
+    put('scripts/seed-emulators.mjs', "import { emulatorProject } from '@sabeel-institute/ci-tools/lib/ports.mjs';\n");
     expect(problems(root)).toEqual([]);
     put('maestro/old.yaml', 'appId: com.sabeelinstitute.example\n---\n- launchApp\n');
     expect(problems(root)).toEqual(['maestro/old.yaml does not take its app from native-e2e: it must name it as appId: ${APP_ID}']);
@@ -327,7 +491,7 @@ describe('check-app', () => {
     put('package.json', { scripts: { 'dev:web': 'expo start --web --port 61910' } });
     expect(portProblems(root)).toEqual([
       'scripts/lib/stack.sh states 61900 (firestore), 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
-      "scripts/lib/stack.sh passes --project demo-sabeel-kanban; this app's emulator project is demo-example",
+      "scripts/lib/stack.sh passes --project demo-sabeel-kanban; this app's emulator project is demo-sabeel-example",
       "scripts/old.mjs names 8080, 9099: Firebase defaults or given-up ports, not this app's",
       "scripts/old.mjs names 61203, outside this app's block 61900-61999: another checkout's",
       'package.json states 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
@@ -339,8 +503,8 @@ describe('check-app', () => {
     put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-sabeel';\n");
     put('functions/.env.demo-sabeel', 'MEDIA_BUCKET=local\n');
     expect(portProblems(root)).toEqual([
-      'packages/shared/src/constants.ts says the emulator project is demo-sabeel; ci-tools.json emulators.project is demo-example',
-      'functions/.env.demo-sabeel is for another project: the Functions emulator reads functions/.env.demo-example',
+      "packages/shared/src/constants.ts says the emulator project is demo-sabeel; this app's is demo-sabeel-example, demo-sabeel-<name> from ci-tools.json",
+      'functions/.env.demo-sabeel is for another project: the Functions emulator reads functions/.env.demo-sabeel-example',
     ]);
   });
 

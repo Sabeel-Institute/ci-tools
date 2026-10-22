@@ -2,11 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseEnv } from 'node:util';
 import { config } from '../lib/config.mjs';
 import { writeBuildInfo } from './build-info.mjs';
 import { checkVersion } from './check-version.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
+import { dsnProblem, nativeBuildEnv, sentryGradleProblem, tokenProblem } from './lib/sentry.mjs';
 
 /**
  * The signed Android App Bundle for Google Play, built the same way in every
@@ -23,33 +23,27 @@ import { deployNotesProblem } from './deploy-notes.mjs';
  *  - the deploy log already has this version's entry (`deploy-notes`). It is
  *    the release notes and the only record of why, so it comes first, not
  *    afterwards from memory;
- *  - app/.env.local carries the native Sentry DSN, in the variable
- *    ci-tools.json's build.sentryDsnVariable names. The file is gitignored, so
- *    a fresh clone builds a release that reports nothing and looks the same.
- * Then `build-info` stamps the commit and `./gradlew bundleRelease` runs. The
- * bundle must come out signed, and not with the debug key: that keystore is
- * committed in each public repository, and Play refuses it, so the answer is
- * known before an upload rather than after.
+ *  - Sentry is set up (scripts/lib/sentry.mjs): app/.env.local carries
+ *    EXPO_PUBLIC_SENTRY_DSN_NATIVE, app/.env.sentry-build-plugin a
+ *    SENTRY_AUTH_TOKEN, and build.gradle applies sentry.gradle when that file
+ *    is there. Both files are gitignored, so a fresh clone would build a
+ *    release that reports nothing, or nothing anyone can read, and looks the
+ *    same.
+ * Then `build-info` stamps the commit and `./gradlew bundleRelease` runs, with
+ * ci-tools.json's Sentry org and native project in its environment, so
+ * sentry.gradle uploads the bundle's source map there. The bundle must come
+ * out signed, and not with the debug key: that keystore is committed in each
+ * public repository, and Play refuses it, so the answer is known before an
+ * upload rather than after.
  */
 export const BUNDLE = 'app/android/app/build/outputs/bundle/release/app-release.aab';
-const ENV_LOCAL = 'app/.env.local';
-
-/** Why app/.env.local has no usable DSN in `variable`, or null. The value is never printed. */
-export function sentryDsnProblem(variable) {
-  const value = existsSync(ENV_LOCAL) ? parseEnv(readFileSync(ENV_LOCAL, 'utf8'))[variable] : undefined;
-  if (!value) {
-    return `${ENV_LOCAL} has no ${variable}, so this build would ship with crash reporting silently off.\n`
-      + '    The file is gitignored, so a fresh clone never has it; on GitHub it comes from the\n'
-      + "    APP_ENV_LOCAL secret. Add the DSN from Sentry (the project's Client Keys).";
-  }
-  if (!/^https:\/\/[^@\s]+@\S+$/.test(value)) return `${variable} in ${ENV_LOCAL} does not look like a Sentry DSN (https://<key>@<host>/<project>).`;
-  return null;
-}
+const GRADLE = 'app/android/app/build.gradle';
 
 /** The checks before a release build: the version, its versionCode and every problem found. */
-export function releaseChecks(settings) {
+export function releaseChecks() {
   const version = checkVersion();
-  const problems = [...version.problems, deployNotesProblem(version.version), sentryDsnProblem(settings.build.sentryDsnVariable)];
+  const gradle = existsSync(GRADLE) ? sentryGradleProblem(readFileSync(GRADLE, 'utf8')) : `${GRADLE} is missing`;
+  const problems = [...version.problems, deployNotesProblem(version.version), dsnProblem('native'), tokenProblem(), gradle];
   return { ...version, problems: problems.filter(Boolean) };
 }
 
@@ -77,10 +71,10 @@ const refusal = (problems) => `not building the release bundle:\n${problems.map(
 
 /** Check, stamp, build and check the signature; returns what was built. */
 export function buildAab(settings) {
-  const checks = releaseChecks(settings);
+  const checks = releaseChecks();
   if (checks.problems.length) throw new Error(refusal(checks.problems));
   const { commit } = writeBuildInfo();
-  execFileSync('./gradlew', ['bundleRelease', '--no-daemon'], { cwd: 'app/android', stdio: 'inherit' });
+  execFileSync('./gradlew', ['bundleRelease', '--no-daemon'], { cwd: 'app/android', stdio: 'inherit', env: nativeBuildEnv(settings) });
   if (!existsSync(BUNDLE)) throw new Error(`bundleRelease produced no bundle at ${BUNDLE}`);
   const signer = bundleSigner(BUNDLE);
   const problem = signerProblem(signer);
@@ -96,7 +90,8 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   }
   try {
     if (args[0] === '--check') {
-      const { version, problems } = releaseChecks(config());
+      config(); // the build reads it, so a broken one fails the check too
+      const { version, problems } = releaseChecks();
       if (problems.length) throw new Error(refusal(problems));
       console.log(`build-aab --check: v${version} may be built; nothing was built`);
     } else {

@@ -13,15 +13,19 @@
     "ffmpeg": true,
     "mediaStore": true
   },
-  "build": {
-    "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
+  "sentry": {
+    "org": "example-org",
+    "projects": {
+      "native": "example-native",
+      "web": "example-web",
+      "functions": "example-functions"
+    }
   },
   "ios": {
     "backgroundPlayback": true
   },
   "emulators": {
     "base": 61900,
-    "project": "demo-example",
     "extras": {
       "store": 20,
       "storeAdmin": 21
@@ -34,7 +38,6 @@
     "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
   },
   "native": {
-    "seed": "scripts/seed-native.mjs",
     "seedWeb": true,
     "reversePorts": [
       "store"

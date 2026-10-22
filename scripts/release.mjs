@@ -3,8 +3,10 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from '../lib/config.mjs';
 import { androidIdentity, buildNumber, versionCode, versionProblems } from '../lib/version.mjs';
 import { BUNDLE, fingerprint } from './publish-play.mjs';
+import { nativeBuildEnv } from './lib/sentry.mjs';
 
 /**
  * Release an app, the same way for every app, in two steps, because main takes
@@ -17,7 +19,7 @@ import { BUNDLE, fingerprint } from './publish-play.mjs';
  * it runs in as it is. It writes the version where it lives: app.json's
  * expo.version, and the iOS build number that follows from it (lib/version.mjs);
  * Gradle derives Android's. It moves the manual's "For app version" line,
- * renders docs/USER-MANUAL.pdf, and adds the deploy-log entry --notes holds to
+ * renders docs/USER-MANUAL.pdf (`sabeel-ci render-manual`), and adds the deploy-log entry --notes holds to
  * docs/PHASE_STATUS.md, unless main already has the version's entry. That is
  * committed as `chore(release): v<version>` on release/v<version>, which is
  * pushed, and the pull request into main is opened. It never pushes main.
@@ -52,7 +54,6 @@ import { BUNDLE, fingerprint } from './publish-play.mjs';
 
 const MANUAL = 'docs/USER-MANUAL.md';
 const MANUAL_PDF = 'docs/USER-MANUAL.pdf';
-const RENDER_MANUAL = 'docs/render-manual.py';
 const MANUAL_LINE = /^(\*For app version )(\S+)( · )/m;
 const DEPLOY_LOG = 'docs/PHASE_STATUS.md';
 const DEPLOY_LOG_SECTION = '## Deploy log';
@@ -204,7 +205,7 @@ function prepare(version, notesPath, dryRun) {
     const manual = readFileSync(join(tree, MANUAL), 'utf8');
     if (!MANUAL_LINE.test(manual)) throw new Error(`${MANUAL} has no "*For app version <X.Y.Z> · <Month YYYY>*" line to move.`);
     writeFileSync(join(tree, MANUAL), manual.replace(MANUAL_LINE, `$1${version}$3`));
-    show('python3', [RENDER_MANUAL], { cwd: tree });
+    sabeelCi(['render-manual'], { cwd: tree, stdio: 'inherit' });
     const problems = versionedFileProblems(tree);
     if (problems.length) throw new Error(`Not releasing v${version}:\n${list(problems)}`);
     let title;
@@ -294,7 +295,7 @@ function ship() {
   sabeelCi(['build-aab'], inherit);
   sabeelCi(['publish-play', '--check'], inherit);
   sabeelCi(['build-info'], inherit);
-  show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android' });
+  show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android', env: nativeBuildEnv(config()) });
   const out = mkdtempSync(join(tmpdir(), `release-v${version}-`));
   const signer = fingerprint(/SHA256:\s*([0-9A-Fa-f:]+)/.exec(run('keytool', ['-printcert', '-jarfile', BUNDLE]))?.[1] ?? '');
   const signing = apksigner();

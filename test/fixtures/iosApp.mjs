@@ -65,7 +65,7 @@ export function iosApp(settings = full) {
   put('app/GoogleService-Info.plist', plist({ BUNDLE_ID, PROJECT_ID: PROJECT, REVERSED_CLIENT_ID: 'com.googleusercontent.apps.0-example' }));
   put('app/google-services.json', { project_info: { project_id: PROJECT } });
   put('app/assets/icon.png', pngHeader(1024, 1024));
-  put('app/.env.local', `${settings.build.sentryDsnVariable}=${DSN}\n`);
+  put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${DSN}\n`);
   put('app/android/app/build.gradle', 'android {\n  defaultConfig {\n    versionCode 1002003\n    versionName "1.2.3"\n  }\n}\n');
   return { root, put };
 }

@@ -32,7 +32,7 @@ const ENTRY = '### 2026-10-22 — Faster sign-in — v0.2.1\n\nSign-in takes one
  * An app repository with its origin (a bare repository standing in for
  * GitHub), released at 0.2.0 and tagged, and stand-ins for ci-tools' other
  * commands, gh, Gradle, keytool and apksigner, each recording its calls.
- * python3 runs a renderer of the apps' shape.
+ * sabeel-ci's render-manual checks the manual's version line and writes the PDF.
  */
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), 'release-'));
@@ -71,7 +71,6 @@ function fixture() {
   put('app/android/gradlew', '#!/usr/bin/env node\n' + stand('gradlew.mjs'), 0o755);
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.0 · October 2026*\n\nHow to use it.\n');
   put('docs/USER-MANUAL.pdf', 'PDF 0.2.0\n');
-  put('docs/render-manual.py', readFileSync(resolve(import.meta.dirname, 'fixtures/release/render-manual.py'), 'utf8'));
   put('docs/PHASE_STATUS.md', LOG);
   git('add', '-A');
   git('commit', '--quiet', '-m', 'v0.2.0');
@@ -122,6 +121,7 @@ describe('release, step 1: the release pull request', () => {
     expect(shipped('docs/USER-MANUAL.pdf')).toBe('PDF 0.2.1\n');
     expect(shipped('docs/PHASE_STATUS.md')).toBe(LOG.replace('### 2026-10-01', `${ENTRY}\n### 2026-10-01`));
 
+    expect(test.said()).toContain('sabeel-ci render-manual');
     expect(test.said()).toContain('gh auth status');
     const pr = test.calls().find((call) => call.tool === 'gh' && call.args[0] === 'pr');
     expect(pr.args).toEqual(['pr', 'create', '--repo', 'Sabeel-Institute/example', '--base', 'main', '--head', 'release/v0.2.1', '--title', 'v0.2.1 — Faster sign-in', '--body-file', expect.any(String)]);

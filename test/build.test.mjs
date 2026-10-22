@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { selfTest } from '../scripts/check-version.mjs';
 import { controlByte } from '../scripts/check-text-sources.mjs';
 import { deployNotes } from '../scripts/deploy-notes.mjs';
 import { foreignHolders } from '../scripts/preflight-metro.mjs';
+import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import { vapidKey } from './fixtures/push.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -38,15 +39,17 @@ function app({ version = '0.2.0' } = {}) {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2), { mode });
   };
   put('ci-tools.json', full);
-  put('.gitignore', 'app/src/build-info.ts\napp/.env.local\napp/dist-web/\napp/android/app/build/\nbin/\ncalls.log\nrunner/\n');
+  put('.gitignore', 'app/src/build-info.ts\napp/.env.local\napp/.env.sentry-build-plugin\napp/dist-web/\napp/android/app/build/\nbin/\ncalls.log\nrunner/\n');
   put('app/app.json', { expo: { version, android: { package: 'com.sabeelinstitute.example' } } });
-  put('app/android/app/build.gradle', 'versionCode computedVersionCode\nversionName expoVersion\n');
+  put('app/android/app/build.gradle', SENTRY_GRADLE + 'versionCode computedVersionCode\nversionName expoVersion\n');
   put('app/src/App.tsx', "import { BUILD_INFO } from './build-info';\n");
   put('docs/PHASE_STATUS.md', `# Phase status\n\n## Deploy log\n\n### 2026-10-21 — The fixture release — v${version}\n\nWhat ${version} holds.\n\n### 2026-10-01 — The one before — v0.1.9\n\nOlder.\n`);
-  put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${dsn}\n`);
+  put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${dsn}\nEXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n`);
+  put('app/.env.sentry-build-plugin', 'SENTRY_AUTH_TOKEN=fixture-token-value\nIOS_TEAM_ID=TEAM123456\n');
   put('app/android/gradlew', `#!/usr/bin/env node
 const fs = require('node:fs');
-fs.appendFileSync('../../calls.log', 'gradlew ' + process.argv.slice(2).join(' ') + '\\n');
+fs.appendFileSync('../../calls.log', 'gradlew ' + process.argv.slice(2).join(' ')
+  + ' SENTRY_ORG=' + process.env.SENTRY_ORG + ' SENTRY_PROJECT=' + process.env.SENTRY_PROJECT + '\\n');
 fs.mkdirSync('app/build/outputs/bundle/release', { recursive: true });
 fs.writeFileSync('app/build/outputs/bundle/release/app-release.aab', fs.readFileSync('../src/build-info.ts'));
 `, 0o755);
@@ -56,7 +59,12 @@ fs.appendFileSync('../calls.log', 'npx ' + process.argv.slice(2).join(' ') + '\\
 fs.mkdirSync('dist-web/_expo/static/js/web', { recursive: true });
 fs.writeFileSync('dist-web/index.html', '<div id="root"></div><script src="/_expo/static/js/web/entry.js" defer></script>');
 const vapid = process.env.FAKE_NO_VAPID ? '' : ${JSON.stringify(vapidKey())};
-fs.writeFileSync('dist-web/_expo/static/js/web/entry.js', (process.env.FAKE_STALE ? 'stale' : fs.readFileSync('src/build-info.ts')) + 'var v="' + vapid + '";');
+const id = '0123abcd-0000-4000-8000-00000000cafe';
+const maps = process.argv.includes('--source-maps');
+fs.writeFileSync('dist-web/_expo/static/js/web/entry.js', (process.env.FAKE_STALE ? 'stale' : fs.readFileSync('src/build-info.ts')) + 'var v="' + vapid + '";'
+  + (maps && !process.env.FAKE_NO_SENTRY ? '_sentryDebugIdIdentifier="sentry-dbid-' + id + '";' : '')
+  + (maps ? '\\n//# debugId=' + id + '\\n//# sourceMappingURL=/_expo/static/js/web/entry.js.map' : ''));
+if (maps) fs.writeFileSync('dist-web/_expo/static/js/web/entry.js.map', JSON.stringify({ version: 3, sources: ['App.tsx'], mappings: '', debugId: id }));
 `, 0o755);
   put('bin/jarsigner', `#!/usr/bin/env node
 const signer = process.env.FAKE_SIGNER ?? 'CN=Sabeel Institute, O=Sabeel Institute';
@@ -191,13 +199,40 @@ describe('preflight-metro', () => {
   });
 });
 
+describe('render-manual', () => {
+  const bin = resolve(import.meta.dirname, '../bin/sabeel-ci.mjs');
+  const render = (test, path, ...args) => spawnSync(process.execPath, [bin, 'render-manual', ...args], { cwd: test.root, encoding: 'utf8', env: { ...process.env, PATH: path } });
+
+  it('runs the renderer with uv, as a PEP 723 script', () => {
+    const test = app();
+    test.put('bin/uv', '#!/bin/sh\necho "uv $*" >> calls.log\n', 0o755);
+    const result = render(test, `${join(test.root, 'bin')}:/usr/bin:/bin`);
+    expect(result.status).toBe(0);
+    expect(test.calls()).toEqual([`uv run --quiet --script ${resolve(import.meta.dirname, '../scripts/lib/render-manual.py')}`]);
+    expect(readFileSync(resolve(import.meta.dirname, '../scripts/lib/render-manual.py'), 'utf8'))
+      .toMatch(/^# \/\/\/ script\n# requires-python = ">=3\.10"\n# dependencies = \["markdown==\d+\.\d+\.\d+"\]\n# \/\/\/\n/);
+  });
+
+  it('says what is missing, and takes no arguments', () => {
+    const test = app();
+    // A PATH holding bash alone, wherever the machine keeps uv.
+    mkdirSync(join(test.root, 'bare'));
+    symlinkSync(execFileSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(), join(test.root, 'bare/bash'));
+    const bare = join(test.root, 'bare');
+    expect(render(test, bare).stderr).toMatch(/^render-manual: uv is not on the PATH/);
+    const extra = render(test, bare, 'docs/OTHER.md');
+    expect(extra.status).toBe(2);
+    expect(extra.stderr).toBe('usage: sabeel-ci render-manual\n');
+  });
+});
+
 describe('build-aab', () => {
   it('checks, stamps the commit, builds, and reads the signature', () => {
     const test = app();
     const result = test.run('build-aab');
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    expect(test.calls()).toEqual(['gradlew bundleRelease --no-daemon']);
+    expect(test.calls()).toEqual(['gradlew bundleRelease --no-daemon SENTRY_ORG=example-org SENTRY_PROJECT=example-native']);
     expect(test.read('app/android/app/build/outputs/bundle/release/app-release.aab')).toContain(`commit: "${test.commit()}"`);
     expect(result.stdout).toMatch(/version {4}0\.2\.0 \(versionCode 2000\)/);
     expect(result.stdout).toContain('signed by  CN=Sabeel Institute');
@@ -218,6 +253,24 @@ describe('build-aab', () => {
     expect(malformed.stderr + malformed.stdout).not.toMatch(/not-a-dsn-secret|fixturekey/);
     rmSync(join(test.root, 'app/.env.local'));
     expect(test.run('build-aab', ['--check']).stderr).toMatch(/app\/\.env\.local has no EXPO_PUBLIC_SENTRY_DSN_NATIVE/);
+    expect(test.calls()).toEqual([]);
+  });
+
+  it('refuses a release that would upload no source maps, never printing the token', () => {
+    const test = app();
+    test.put('app/.env.sentry-build-plugin', 'IOS_TEAM_ID=TEAM123456\n');
+    const tokenless = test.run('build-aab', ['--check']);
+    expect(tokenless.status).toBe(1);
+    expect(tokenless.stderr).toMatch(/app\/\.env\.sentry-build-plugin has no SENTRY_AUTH_TOKEN, so this release would upload no source maps/);
+    rmSync(join(test.root, 'app/.env.sentry-build-plugin'));
+    expect(test.run('build-aab', ['--check']).stderr).toMatch(/has no SENTRY_AUTH_TOKEN/);
+    test.put('app/.env.sentry-build-plugin', 'SENTRY_AUTH_TOKEN=fixture-token-value\n');
+    test.put('app/android/app/build.gradle', 'if (file("${rootProject.projectDir}/sentry.properties").exists()) {\n'
+      + '    apply from: "../sentry.gradle"\n}\nversionCode computedVersionCode\nversionName expoVersion\n');
+    const ungated = test.run('build-aab', ['--check']);
+    expect(ungated.status).toBe(1);
+    expect(ungated.stderr).toMatch(/must apply sentry\.gradle exactly when app\/\.env\.sentry-build-plugin exists/);
+    expect(ungated.stderr + ungated.stdout + tokenless.stderr + tokenless.stdout).not.toContain('fixture-token-value');
     expect(test.calls()).toEqual([]);
   });
 
@@ -276,7 +329,7 @@ describe('ci-platform builds', () => {
     const test = app();
     const result = test.run('ci-platform', ['android'], env);
     expect(result.stderr).toBe('');
-    expect(test.calls()).toEqual(['gradlew bundleRelease --no-daemon']);
+    expect(test.calls()).toEqual(['gradlew bundleRelease --no-daemon SENTRY_ORG=example-org SENTRY_PROJECT=example-native']);
     const record = JSON.parse(test.read('runner/android-artifact/build-record.json'));
     expect(record).toMatchObject({ platform: 'android', commit: git(test.root, 'rev-parse', 'HEAD'), signingCertificate: certificate });
   });
@@ -292,13 +345,29 @@ describe('ci-platform builds', () => {
     expect(existsSync(join(test.root, 'runner/android-artifact/build-record.json'))).toBe(false);
   });
 
-  it('build the web export through build-web and check its commit', () => {
+  it('build the web export through build-web, with its source maps beside the site, and check its commit', () => {
     const test = app();
     expect(test.run('ci-platform', ['web'], env).stderr).toBe('');
+    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps']);
     const record = JSON.parse(test.read('runner/web-artifact/build-record.json'));
     expect(Object.keys(record.files)).toEqual(['_expo/static/js/web/entry.js', 'index.html']);
+    expect(Object.keys(record.sourceMaps)).toEqual(['_expo/static/js/web/entry.js', '_expo/static/js/web/entry.js.map']);
+    expect(existsSync(join(test.root, 'runner/web-artifact/site/_expo/static/js/web/entry.js.map'))).toBe(false);
+    expect(test.read('runner/web-artifact/sourcemaps/_expo/static/js/web/entry.js.map')).toContain('"debugId":"0123abcd-0000-4000-8000-00000000cafe"');
     test.put('app/src/App.tsx', '// edited\n');
     expect(test.run('ci-platform', ['web'], env).stderr).toMatch(/Web export is marked as built from uncommitted changes/);
+  });
+
+  it('refuse a web release with no web DSN, or whose scripts cannot hand Sentry their debug ids', () => {
+    const test = app();
+    test.put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${dsn}\n`);
+    const dsnless = test.run('ci-platform', ['web'], env);
+    expect(dsnless.stderr).toMatch(/not building the web release:\n {2}- app\/\.env\.local has no EXPO_PUBLIC_SENTRY_DSN_WEB/);
+    expect(test.calls()).toEqual([]);
+    test.put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${dsn}\nEXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n`);
+    const unmatched = test.run('ci-platform', ['web'], { ...env, FAKE_NO_SENTRY: '1' });
+    expect(unmatched.stderr).toMatch(/cannot be read in Sentry:\n {2}- _expo\/static\/js\/web\/entry\.js does not hand its debug id to the Sentry SDK: app\/metro\.config\.js must build on getSentryExpoConfig/);
+    expect(existsSync(join(test.root, 'runner/web-artifact'))).toBe(false);
   });
 
   it('checks every web export for its VAPID key before it becomes the artifact', () => {

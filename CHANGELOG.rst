@@ -4,6 +4,62 @@ Changelog
 Unreleased
 ----------
 
+- ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
+  place of the three diverged ``docs/render-manual.py`` copies, and
+  ``release`` runs it. It keeps the best of them: the version from
+  ``app.json`` and this month on the cover, the manual's version line checked
+  against ``app.json``, the cover title from ``app.json``'s name, LMS's
+  phone-then-computer screenshot pairs (``figure.ph``, ``figure.wd``). The logo
+  is ``app/assets/logo.png``. It is Python with inline dependencies
+  (``markdown`` 3.10.3), run by ``uv run --script``.
+- ``check-app`` holds more of each app to one shape: the Hosting site
+  (security headers on ``!/__/**`` only, immutable ``/_expo/static/**`` and
+  ``/assets/**``, the single-page rewrite from ``!/_expo/**``), a
+  ``default`` alias in ``.firebaserc``, Android's default notification
+  channel naming ``PUSH_CHANNEL_ID``, the google-services plugin at 4.4.4,
+  ``build.gradle`` stopping a release it cannot sign
+  (``gradle.taskGraph.whenReady``, Kanban's shape), and ``.gitignore``
+  covering ``*.jks``, ``*.keystore``, ``*service-account*.json`` and
+  ``*firebase-adminsdk*.json``.
+- Sentry, one way in every app. The DSNs are always
+  ``EXPO_PUBLIC_SENTRY_DSN_NATIVE`` and ``EXPO_PUBLIC_SENTRY_DSN_WEB``;
+  ``build.sentryDsnVariable`` (and the ``build`` section) is gone. The org and
+  project slugs live in ``ci-tools.json``'s new, required ``sentry`` section.
+  The build secret ``IOS_BUILD_ENV`` is renamed ``BUILD_ENV``, holds
+  ``SENTRY_AUTH_TOKEN`` and the App Store Connect ids, and is written to
+  ``app/.env.sentry-build-plugin`` by the Android build too.
+  ``build-aab`` refuses a release without the native DSN, the token or
+  ``build.gradle``'s ``sentry.gradle`` gate, and runs Gradle with the org and
+  native project; ``build-ios`` refuses one without the token.
+  ``ci-platform web`` requires the web DSN and debug ids in every script and
+  keeps the source maps beside the site; Deploy Web uploads them from a new
+  ``sourcemaps`` job in ``release-build`` before it publishes, with a
+  checksum-pinned ``sentry-cli``. ``check-app`` requires the gradle gate,
+  ``getSentryExpoConfig`` in ``app/metro.config.js`` and the two DSN names
+  in ``app/src``. Release access names the publishing jobs per workflow, and
+  Deploy Web's ``sourcemaps`` starts with the owner check too.
+- ``functions/.secret.local`` comes from ``ci.emulatorSecrets`` alone:
+  ``emulators`` and ``test-emulator`` write it on every run, and the new
+  ``emulator-secrets`` writes it for a stack the app starts itself (CI's
+  browser job runs it; the integration and native jobs no longer need a
+  step). ``check-app`` requires it ignored and not committed. The browser
+  job's Chromium install times out after 10 minutes.
+- The emulators' project is ``demo-sabeel-<name>``, derived from
+  ``ci-tools.json``'s ``name`` (``emulatorProject()`` in ``lib/ports.mjs``,
+  ``sabeel-ci ports --project``); ``emulators.project`` is gone and an app
+  that sets it fails every command. ``name`` must make a project id:
+  lowercase words joined by hyphens, at most 18 characters. The projects
+  become ``demo-sabeel-lms``, ``demo-sabeel-time-tracker`` and
+  ``demo-sabeel-kanban``; ``check-app`` holds ``EMULATOR_PROJECT_ID`` and
+  ``functions/.env.demo-sabeel-<name>`` to it.
+- The native flows' seed is ``scripts/seed-emulators.mjs`` in every app;
+  ``native.seed`` is gone. ``native-e2e`` refuses to run without it, and
+  ``check-app`` requires it where ``maestro/`` holds flows.
+- ``emulators`` and ``test-emulator`` (and ``native-e2e`` through
+  ``emulators``) set ``FUNCTIONS_DISCOVERY_TIMEOUT=120`` unless the caller
+  set it: firebase-tools gives a new Functions worker 30 s to load, which a
+  busy macOS runner exceeded, failing a request with "Failed to load
+  function".
 - The tools the three apps kept identical copies of, as one package:
   ``check-release``, ``ci-android-sdk``, ``ci-avd``, ``ci-functions``,
   ``ci-hosting-smoke``, ``ci-platform``, ``ci-play``, ``ci-premerge`` (with the

@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { config } from '../lib/config.mjs';
-import { emulatorEnv, freePorts, main, run, startable } from './lib/firebase-emulators.mjs';
+import { emulatorProject } from '../lib/ports.mjs';
+import { emulatorEnv, freePorts, main, run, startable, writeEmulatorSecrets } from './lib/firebase-emulators.mjs';
 
 /**
  * The functions workspace's emulator suites, in two passes:
@@ -21,7 +22,8 @@ import { emulatorEnv, freePorts, main, run, startable } from './lib/firebase-emu
  *      (LMS's media store): the triggers, callables and blocking functions.
  *
  * Both passes run whatever the first says, and this fails if either did. The
- * ports are freed before each. The functions are built first: the Functions
+ * ports are freed before each, and functions/.secret.local is written from
+ * ci.emulatorSecrets before the first. The functions are built first: the Functions
  * emulator loads the built bundle, not the TypeScript, while the tests run
  * fresh source, so without the build the suite passes against yesterday's
  * triggers and nothing shows it.
@@ -45,10 +47,13 @@ function gradle() {
 }
 
 await main(async () => {
-  const { project, functionsWrapper = [] } = config().emulators;
+  const settings = config();
+  const project = emulatorProject(settings);
+  const { functionsWrapper = [] } = settings.emulators;
   const all = startable();
   const env = emulatorEnv();
   gradle();
+  writeEmulatorSecrets(settings);
   if (await run(['npm', 'run', 'build'])) throw new Error('npm run build failed; no emulator suite ran');
   const passes = [
     { name: 'rules', only: all.filter((name) => name !== 'functions'), around: [] },

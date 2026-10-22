@@ -77,10 +77,15 @@ describe('platform build and deployment safety', () => {
 
   it('restores signing with private permissions and replaces machine-specific paths', () => {
     const test = fixture();
-    test.run('prepare-android', {
+    const output = test.run('prepare-android', {
       ANDROID_KEYSTORE: Buffer.from('fixture key').toString('base64'),
       ANDROID_KEYSTORE_PROPERTIES: 'storeFile=/old/machine/key.jks\nstorePassword=fake-store\nkeyAlias=upload\nkeyPassword=fake-key\n',
+      BUILD_ENV: 'SENTRY_AUTH_TOKEN=fixture-token\n',
     });
+    // sentry.gradle uploads the bundle's source map with the token in this file.
+    expect(readFileSync(join(test.directory, 'app/.env.sentry-build-plugin'), 'utf8')).toBe('SENTRY_AUTH_TOKEN=fixture-token\n');
+    expect(statSync(join(test.directory, 'app/.env.sentry-build-plugin')).mode & 0o777).toBe(0o600);
+    expect(output).toContain('::add-mask::fixture-token\n');
     const path = join(test.directory, 'android-keystore.properties');
     const properties = readFileSync(path, 'utf8');
     expect(properties).not.toContain('/old/machine');
@@ -89,6 +94,43 @@ describe('platform build and deployment safety', () => {
     expect(statSync(join(test.directory, 'android-signing.keystore')).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toBe(`SABEEL_KEYSTORE_PROPERTIES=${path}\n`);
     expect(existsSync(join(test.directory, 'app/android/keystore.properties'))).toBe(false);
+  });
+
+  it('refuses an Android release build without the build machine\'s values', () => {
+    const test = fixture();
+    expect(() => test.run('prepare-android', {})).toThrow(/Missing BUILD_ENV/);
+  });
+
+  it("uploads the selected web build's source maps to the app's web project, the token in sentry-cli's environment only", () => {
+    const test = fixture();
+    test.put('ci-tools.json', JSON.stringify(full));
+    test.put('hosting-artifact/site/index.html', 'site');
+    test.put('hosting-artifact/sourcemaps/_expo/static/js/web/entry.js', 'code');
+    test.put('hosting-artifact/sourcemaps/_expo/static/js/web/entry.js.map', '{"debugId":"x"}');
+    const record = {
+      platform: 'web', commit, repository: 'Sabeel-Institute/test', repositoryId: '123', runId: '456',
+      files: treeHashes(join(test.directory, 'hosting-artifact/site')),
+      sourceMaps: treeHashes(join(test.directory, 'hosting-artifact/sourcemaps')),
+    };
+    test.put('hosting-artifact/build-record.json', JSON.stringify(record));
+    test.put('bin/sentry-cli', `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(join(test.directory, 'sentry-cli.json'))}, JSON.stringify({ args: process.argv.slice(2),
+  token: process.env.SENTRY_AUTH_TOKEN, dotenv: process.env.SENTRY_LOAD_DOTENV, buildEnv: process.env.BUILD_ENV ?? null }));
+`, 0o700);
+    const upload = { BUILD_ENV: 'SENTRY_AUTH_TOKEN=fixture-token\nASC_KEY_ID=ABC123DEF4\n', SENTRY_CLI: join(test.directory, 'bin/sentry-cli') };
+    const output = test.run('sourcemaps', upload);
+    expect(output).toContain('::add-mask::fixture-token\n');
+    expect(JSON.parse(readFileSync(join(test.directory, 'sentry-cli.json'), 'utf8'))).toEqual({
+      args: ['sourcemaps', 'upload', '--org', 'example-org', '--project', 'example-web', join(test.directory, 'hosting-artifact/sourcemaps')],
+      token: 'fixture-token', dotenv: '0', buildEnv: null,
+    });
+    expect(() => test.run('sourcemaps', { ...upload, BUILD_ENV: 'ASC_KEY_ID=ABC123DEF4\n' })).toThrow(/BUILD_ENV has no SENTRY_AUTH_TOKEN/);
+    test.put('hosting-artifact/sourcemaps/_expo/static/js/web/entry.js.map', '{"debugId":"y"}');
+    expect(() => test.run('sourcemaps', upload)).toThrow(/Source map checksum mismatch/);
+    test.put('hosting-artifact/build-record.json', JSON.stringify({ ...record, sourceMaps: undefined }));
+    expect(() => test.run('sourcemaps', upload)).toThrow(/recorded no source maps/);
+    test.put('hosting-artifact/build-record.json', JSON.stringify({ ...record, runId: '999' }));
+    expect(() => test.run('sourcemaps', upload)).toThrow(/provenance/);
   });
 
   it('rejects production builds configured to use Firebase emulators', () => {
@@ -164,8 +206,8 @@ describe('platform build and deployment safety', () => {
     test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
     const plist = '<plist><dict><key>BUNDLE_ID</key><string>com.sabeelinstitute.example</string></dict></plist>\n';
     const output = test.run('prepare-ios', {
-      APP_ENV_LOCAL: 'EXPO_PUBLIC_SENTRY_DSN="https://dsn@example.invalid/1"\n',
-      IOS_BUILD_ENV: '# the build machine\nSENTRY_AUTH_TOKEN="token=value"\r\nIOS_TEAM_ID=TEAM123456\nASC_KEY_ID=\n',
+      APP_ENV_LOCAL: 'EXPO_PUBLIC_SENTRY_DSN_NATIVE="https://dsn@example.invalid/1"\n',
+      BUILD_ENV: '# the build machine\nSENTRY_AUTH_TOKEN="token=value"\r\nIOS_TEAM_ID=TEAM123456\nASC_KEY_ID=\n',
       GOOGLE_SERVICE_INFO_PLIST: Buffer.from(plist).toString('base64'),
     });
     expect(output.split('\n').filter((line) => line.startsWith('::add-mask::')).sort())
@@ -180,27 +222,27 @@ describe('platform build and deployment safety', () => {
   it('writes the iOS Firebase configuration only for this app, and only when there is one', () => {
     const test = fixture();
     test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
-    test.run('prepare-ios', { IOS_BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n' });
+    test.run('prepare-ios', { BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n' });
     expect(existsSync(join(test.directory, 'app/GoogleService-Info.plist'))).toBe(false);
     const other = Buffer.from('<key>BUNDLE_ID</key><string>com.sabeelinstitute.other</string>').toString('base64');
-    expect(() => test.run('prepare-ios', { IOS_BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n', GOOGLE_SERVICE_INFO_PLIST: other })).toThrow(/wrong bundle id/);
-    expect(() => test.run('prepare-ios', {})).toThrow(/Missing IOS_BUILD_ENV/);
-    expect(() => test.run('prepare-ios', { APP_ENV_LOCAL: 'EXPO_PUBLIC_USE_EMULATORS=1\n', IOS_BUILD_ENV: 'A=1\n' })).toThrow(/emulators/);
+    expect(() => test.run('prepare-ios', { BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n', GOOGLE_SERVICE_INFO_PLIST: other })).toThrow(/wrong bundle id/);
+    expect(() => test.run('prepare-ios', {})).toThrow(/Missing BUILD_ENV/);
+    expect(() => test.run('prepare-ios', { APP_ENV_LOCAL: 'EXPO_PUBLIC_USE_EMULATORS=1\n', BUILD_ENV: 'A=1\n' })).toThrow(/emulators/);
   });
 
   it('puts the App Store Connect key where Apple\'s tools look, and its ids in the job', () => {
     const test = fixture();
     const key = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
     const settings = 'ASC_KEY_ID=ABC123DEF4\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\nSENTRY_AUTH_TOKEN=token\n';
-    const output = test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: settings, ASC_KEY_P8: key });
+    const output = test.run('asc-key', { HOME: test.directory, BUILD_ENV: settings, ASC_KEY_P8: key });
     expect(output).toContain('::add-mask::token');
     const path = join(test.directory, '.appstoreconnect/private_keys/AuthKey_ABC123DEF4.p8');
     expect(readFileSync(path, 'utf8')).toBe(key + '\n');
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toBe('ASC_KEY_ID=ABC123DEF4\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\n');
-    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: 'ASC_KEY_ID=../../x\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\n', ASC_KEY_P8: key }))
+    expect(() => test.run('asc-key', { HOME: test.directory, BUILD_ENV: 'ASC_KEY_ID=../../x\nASC_ISSUER_ID=00000000-0000-0000-0000-000000000000\n', ASC_KEY_P8: key }))
       .toThrow(/must set ASC_KEY_ID/);
-    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: 'ASC_KEY_ID=ABC123DEF4\n', ASC_KEY_P8: key })).toThrow(/ASC_ISSUER_ID/);
-    expect(() => test.run('asc-key', { HOME: test.directory, IOS_BUILD_ENV: settings, ASC_KEY_P8: 'not a key' })).toThrow(/not a \.p8 private key/);
+    expect(() => test.run('asc-key', { HOME: test.directory, BUILD_ENV: 'ASC_KEY_ID=ABC123DEF4\n', ASC_KEY_P8: key })).toThrow(/ASC_ISSUER_ID/);
+    expect(() => test.run('asc-key', { HOME: test.directory, BUILD_ENV: settings, ASC_KEY_P8: 'not a key' })).toThrow(/not a \.p8 private key/);
   });
 });

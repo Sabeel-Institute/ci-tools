@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { STARTABLE } from '../../lib/ports.mjs';
@@ -26,7 +26,20 @@ export function startable(root = '.') {
   return names;
 }
 
-/** The environment with JAVA_HOME at a JDK 21 or later (scripts/jdk21.sh), and firebase on the PATH. */
+/**
+ * Seconds a new Functions worker has to answer its health check before the
+ * emulator fails the request with "Failed to load function": firebase-tools
+ * reads FUNCTIONS_DISCOVERY_TIMEOUT and waits 30 s without it. On a macOS
+ * runner busy with the simulator and Metro a cold worker took longer (LMS
+ * pull request #28, getPlaybackUrl; sendMyPasswordLink before it).
+ */
+export const FUNCTIONS_DISCOVERY_TIMEOUT = '120';
+
+/**
+ * The environment with JAVA_HOME at a JDK 21 or later (scripts/jdk21.sh),
+ * firebase on the PATH, and FUNCTIONS_DISCOVERY_TIMEOUT unless the caller set
+ * it.
+ */
 export function emulatorEnv() {
   let home;
   try {
@@ -34,11 +47,32 @@ export function emulatorEnv() {
   } catch {
     throw new Error('the emulators cannot start without a JDK 21 (above)');
   }
-  const env = { ...process.env, JAVA_HOME: home, PATH: `${join(home, 'bin')}${delimiter}${process.env.PATH}` };
+  const env = {
+    ...process.env, JAVA_HOME: home, PATH: `${join(home, 'bin')}${delimiter}${process.env.PATH}`,
+    FUNCTIONS_DISCOVERY_TIMEOUT: process.env.FUNCTIONS_DISCOVERY_TIMEOUT || FUNCTIONS_DISCOVERY_TIMEOUT,
+  };
   if (spawnSync('sh', ['-c', 'command -v firebase'], { env, stdio: 'ignore' }).status !== 0) {
     throw new Error('firebase is not on the PATH: npm install --global firebase-tools@15');
   }
   return env;
+}
+
+/** Where the Functions emulator reads the values of the secrets the functions bind. */
+export const SECRET_LOCAL = 'functions/.secret.local';
+
+/**
+ * functions/.secret.local from ci-tools.json's ci.emulatorSecrets: a
+ * placeholder for each secret the functions bind, so the emulator never asks
+ * Secret Manager for one. Written on every run, so the app keeps no copy and
+ * a secret added to ci-tools.json reaches every checkout.
+ */
+export function writeEmulatorSecrets(settings) {
+  const lines = Object.entries(settings.ci.emulatorSecrets).map(([name, value]) => `${name}=${value}\n`);
+  try {
+    writeFileSync(SECRET_LOCAL, lines.join(''));
+  } catch (error) {
+    throw new Error(`cannot write ${SECRET_LOCAL}: ${error.message}`);
+  }
 }
 
 /** sabeel-ci free-emulator-ports; throws when a port stays held. */

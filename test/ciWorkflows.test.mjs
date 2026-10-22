@@ -49,8 +49,14 @@ describe('CI', () => {
   });
 
   it("writes the emulators' secret placeholders from ci-tools.json, never from secrets", () => {
-    expect(ci).toContain(`SECRETS: '${JSON.stringify(full.ci.emulatorSecrets)}'`);
+    // test-emulator writes them itself; the browser suites start their own stack.
+    expect(job(ci, 'browser')).toContain('- name: Emulator secret placeholders\n        run: sabeel-ci emulator-secrets\n');
+    expect(job(ci, 'integration')).not.toContain('emulator-secrets');
     expect(ci).not.toContain('secrets.');
+  });
+
+  it('gives up on a stuck Chromium install in minutes, not at the job timeout', () => {
+    expect(job(ci, 'browser')).toContain('- name: Install Chromium\n        timeout-minutes: 10\n');
   });
 });
 

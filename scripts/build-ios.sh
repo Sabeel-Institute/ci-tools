@@ -77,6 +77,12 @@ app_json() { node -p "require('./app/app.json').expo.$1"; }
 # manifest. It also validates ci-tools.json.
 node "$CI_TOOLS/scripts/check-ios-config.mjs"
 
+# Where the Xcode build's sentry-cli uploads the dSYMs and the source map:
+# ci-tools.json's org and native project, whatever the shell or the file say.
+SENTRY_ORG="$(node -p "require('./ci-tools.json').sentry.org")"
+SENTRY_PROJECT="$(node -p "require('./ci-tools.json').sentry.projects.native")"
+export SENTRY_ORG SENTRY_PROJECT
+
 NAME="$(app_json name)"
 VERSION="$(app_json version)"
 BUILD_NUMBER="$(app_json ios.buildNumber)"
@@ -90,14 +96,10 @@ node "$CI_TOOLS/scripts/deploy-notes.mjs" "$VERSION" >/dev/null || exit 1
 [ -n "${IOS_TEAM_ID:-}" ] || die "IOS_TEAM_ID is not set.
 Put it in app/.env.sentry-build-plugin: developer.apple.com -> Membership details -> Team ID."
 
-missing_sentry=""
-for v in SENTRY_ORG SENTRY_PROJECT SENTRY_AUTH_TOKEN; do
-  [ -n "${!v:-}" ] || missing_sentry="${missing_sentry} ${v}"
-done
-if [ -n "$missing_sentry" ]; then
-  echo "WARNING:${missing_sentry} not set: this build uploads no debug symbols or source maps," >&2
-  echo "so iOS crashes will report raw addresses. Building anyway." >&2
-fi
+# A release whose crashes nobody can read is refused, as on Android.
+[ -n "${SENTRY_AUTH_TOKEN:-}" ] || die "SENTRY_AUTH_TOKEN is not set: this build would upload no debug symbols or source maps,
+so its crashes would reach Sentry as raw addresses. Put it in app/.env.sentry-build-plugin
+(on GitHub, the BUILD_ENV secret)."
 
 # The App Store Connect key. In automatic mode `-allowProvisioningUpdates`
 # MINTS AND DOWNLOADS the signing assets through it, so the archive needs it,
@@ -215,7 +217,7 @@ echo "app          ${NAME} (${BUNDLE_ID})"
 echo "version      ${VERSION}  (build ${BUILD_NUMBER}, commit ${COMMIT})"
 echo "team         ${IOS_TEAM_ID}"
 echo "signing      $([ -n "${IOS_PROFILE_NAME:-}" ] && echo "manual, profile \"${IOS_PROFILE_NAME}\" (expires ${PROFILE_EXPIRES})" || echo "automatic")"
-echo "symbols      ${SENTRY_PROJECT:-<none>}"
+echo "symbols      ${SENTRY_ORG}/${SENTRY_PROJECT}"
 echo
 
 if [ "$CHECK_ONLY" = true ]; then

@@ -1,6 +1,6 @@
 // ci-tools' sabeel-ci as release.mjs sees it. deploy-notes reads the deploy log
-// as the build branch's command does; the others record their call, and fail
-// when the test asks.
+// as the build branch's command does, and render-manual checks and renders as
+// the real one does; the others record their call, and fail when the test asks.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { log } from './log.mjs';
 
@@ -20,6 +20,16 @@ if (command === 'deploy-notes' && process.env.NO_DEPLOY_NOTES) {
   const summary = /^###\s+\S+\s+[—-]\s+(.*?)\s+[—-]\s+v/.exec(lines[at])?.[1].trim();
   const end = lines.findIndex((line, index) => index > at && /^#{1,3}\s/.test(line));
   console.log(flag ? (summary ? `v${version} — ${summary}` : `v${version}`) : lines.slice(at + 1, end < 0 ? undefined : end).join('\n').trim());
+} else if (command === 'render-manual') {
+  // As the real one does: refuse a manual whose version line disagrees with
+  // app.json, and render the PDF with app.json's version.
+  const { version } = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
+  const stated = /^\*For app version (\S+) · /m.exec(readFileSync('docs/USER-MANUAL.md', 'utf8'))?.[1];
+  if (stated !== version) {
+    console.error(`render-manual: docs/USER-MANUAL.md says version ${stated}, app/app.json ${version}`);
+    process.exit(1);
+  }
+  writeFileSync('docs/USER-MANUAL.pdf', `PDF ${version}\n`);
 } else if (command === 'build-aab') {
   mkdirSync('app/android/app/build/outputs/bundle/release', { recursive: true });
   writeFileSync('app/android/app/build/outputs/bundle/release/app-release.aab', 'bundle');

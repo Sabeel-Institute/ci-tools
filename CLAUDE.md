@@ -2,7 +2,7 @@
 
 Shared CI, release and device-test tooling for `Sabeel-Institute/lms`,
 `sabeel-institute-kanban` and `sabeel-institute-time-tracker`. Usage is in
-`README.md`; the consolidation still under way is `docs/PLAN.md`.
+`README.md`; what each app still changes to adopt it is `docs/PLAN.md`.
 
 **This repository is PUBLIC**, like the three apps. No secrets, no real names,
 no data. Identifiers already public in the apps (bundle ids, project ids) are
@@ -39,6 +39,11 @@ fine.
 - **Releases go through pull requests.** `release` pushes only
   `release/v<version>` and opens its pull request; the owner merges it, and
   `release --ship`, run by the owner, creates the tag with the GitHub release.
+- **Secrets are read only inside the `release-build` environment**
+  (`scripts/lib/release-access.mjs`, held over the templates by the tests and
+  over every app workflow by `check-app`), Deploy Web's Sentry upload
+  included. Sentry's org and projects are public and live in `ci-tools.json`;
+  its token travels in `BUILD_ENV`, never on a command line.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch
@@ -51,8 +56,10 @@ fine.
   and the apps leave `github-actions` out of their own Dependabot
   (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
-  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
-  and `ci-sdk.mjs` are imported.
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`,
+  `sentry.mjs` and `ci-sdk.mjs` are imported, and `render-manual.py`, the one
+  Python here, is run by `render-manual.sh` with `uv run --script` (its
+  dependencies are pinned inline, PEP 723). Nothing before `npm ci` runs it.
 
 ## Tests
 

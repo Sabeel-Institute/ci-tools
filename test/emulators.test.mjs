@@ -72,7 +72,7 @@ function app(settings = full) {
   mkdirSync(join(root, 'functions'));
   tool(fakes, 'ss', FAKE_SS);
   tool(fakes, 'npm', `echo "npm $*" >>"$FAKE_LOG"`);
-  tool(fakes, 'firebase', `echo "firebase $* JAVA_HOME=$JAVA_HOME" >>"$FAKE_LOG"
+  tool(fakes, 'firebase', `echo "firebase $* JAVA_HOME=$JAVA_HOME FUNCTIONS_DISCOVERY_TIMEOUT=$FUNCTIONS_DISCOVERY_TIMEOUT" >>"$FAKE_LOG"
 case "$*" in *test:emulator:rules*) exit "\${RULES_EXIT:-0}" ;; esac
 [ -z "$FIREBASE_PIDFILE" ] && exit 0
 trap 'echo "firebase got TERM" >>"$FAKE_LOG"; exit 143' TERM
@@ -86,6 +86,7 @@ while :; do sleep 0.1; done`);
     FAKE_SS_LOG: join(root, 'ss.log'),
     FAKE_SS_TABLE: join(root, 'ss.table'),
     SABEEL_JDK21_HOME: jdk('21.0.5'),
+    FUNCTIONS_DISCOVERY_TIMEOUT: '',
   };
   const log = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), 'utf8').trim().split('\n') : []);
   return { root, env, log };
@@ -105,10 +106,11 @@ const alive = (pid) => {
 };
 
 describe('sabeel-ci ports', () => {
-  it('names every port, one port, or what an emulator run binds', () => {
+  it('names every port, one port, what an emulator run binds, or its project', () => {
     const { root, env } = app();
     expect(sabeel(root, env, 'ports').stdout).toMatch(/^61900 firestore\n61901 firestoreWebsocket\n[\s\S]*61910 web\n[\s\S]*61921 storeAdmin\n$/);
     expect(sabeel(root, env, 'ports', 'web').stdout).toBe('61910\n');
+    expect(sabeel(root, env, 'ports', '--project').stdout).toBe('demo-sabeel-example\n');
     expect(sabeel(root, env, 'ports', '--suite').stdout.trim().split(' ').map(Number)).toEqual(suitePorts(full));
     const wrong = sabeel(root, env, 'ports', 'webb');
     expect(wrong.status).toBe(2);
@@ -245,17 +247,31 @@ echo "emulator $*"`);
   });
 });
 
+const PLACEHOLDERS = 'SENTRY_DSN=disabled\nAPNS_KEY=unused-in-emulator\n';
+
+describe('sabeel-ci emulator-secrets', () => {
+  it("writes functions/.secret.local from ci.emulatorSecrets, over the app's own copy", () => {
+    const { root, env } = app();
+    writeFileSync(join(root, 'functions/.secret.local'), 'SENTRY_DSN=stale\n');
+    const result = sabeel(root, env, 'emulator-secrets');
+    expect(result.status).toBe(0);
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
+    expect(sabeel(root, env, 'emulator-secrets', 'extra').status).toBe(1);
+  });
+});
+
 describe('sabeel-ci test-emulator', () => {
   it('runs the rules pass without the Functions emulator, then the functions pass inside the wrapper', () => {
     const { root, env, log } = app();
     const result = sabeel(root, env, 'test-emulator');
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(log('fake.log')).toEqual([
       'npm run build',
-      `firebase emulators:exec --project demo-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
-      'with-store around: firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions',
-      `firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
+      `firebase emulators:exec --project demo-sabeel-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
+      'with-store around: firebase emulators:exec --project demo-sabeel-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions',
+      `firebase emulators:exec --project demo-sabeel-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
     expect(result.stdout.match(/emulator ports clear/g)).toHaveLength(2);
   });
@@ -282,12 +298,22 @@ describe('sabeel-ci emulators', () => {
     const { root, env, log } = app();
     const result = sabeel(root, env, 'emulators');
     expect(result.status).toBe(0);
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
     expect(result.stdout).toContain('Emulator UI: http://127.0.0.1:61904');
     expect(log('fake.log')).toEqual([
       'npm run build',
-      'with-store around: firebase emulators:start --project demo-example --only firestore,auth,functions,storage',
-      `firebase emulators:start --project demo-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME}`,
+      'with-store around: firebase emulators:start --project demo-sabeel-example --only firestore,auth,functions,storage',
+      `firebase emulators:start --project demo-sabeel-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
+  });
+
+  it("gives a Functions worker 120 s to load, or the caller's own FUNCTIONS_DISCOVERY_TIMEOUT", () => {
+    const { root, env, log } = app();
+    expect(sabeel(root, { ...env, FUNCTIONS_DISCOVERY_TIMEOUT: '300' }, 'emulators').status).toBe(0);
+    expect(log('fake.log').at(-1)).toMatch(/^firebase emulators:start .* FUNCTIONS_DISCOVERY_TIMEOUT=300$/);
+    expect(sabeel(root, { ...env, FUNCTIONS_DISCOVERY_TIMEOUT: '300' }, 'test-emulator').status).toBe(0);
+    expect(log('fake.log').filter((line) => line.startsWith('firebase emulators:exec')).map((line) => line.split(' ').at(-1)))
+      .toEqual(['FUNCTIONS_DISCOVERY_TIMEOUT=300', 'FUNCTIONS_DISCOVERY_TIMEOUT=300']);
   });
 
   it('stops the emulators when sabeel-ci alone is sent SIGTERM', async () => {

@@ -41,7 +41,7 @@ describe('the native flows', () => {
     expect(workflow).toMatch(/\n {2}ios:\n {4}if: .*startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name != 'push'/);
     expect(workflow).toContain('runs-on: macos-');
     expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios\n/);
-    expect(workflow).toContain(`- ${full.native.seed}\n`);
+    expect(workflow).toContain('- scripts/seed-emulators.mjs\n');
     expect(workflow).toContain('- package-lock.json\n');
   });
 
@@ -51,7 +51,13 @@ describe('the native flows', () => {
       expect(workflow).toContain(`name: ${step}`);
       expect(lean).not.toContain(`name: ${step}`);
     }
-    expect(lean).toContain('name: Emulator secret placeholders');
+    // native-e2e writes them through sabeel-ci emulators.
+    expect(workflow).not.toContain('name: Emulator secret placeholders');
+  });
+
+  it("seed the emulators with the app's one seed script, and refuse to run without it", () => {
+    expect(runner).toContain('SEED=scripts/seed-emulators.mjs\n');
+    expect(runner).toMatch(/\[ -f "\$SEED" \] \|\| \{ echo "native-e2e: no \$SEED/);
   });
 
   it('each drive the build the runner installed, on either platform', () => {
