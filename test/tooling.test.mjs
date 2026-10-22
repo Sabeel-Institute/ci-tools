@@ -26,8 +26,9 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\napp/android/keystore.properties\n');
-  put('app/app.json', { expo: { android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
+  put('.gitignore', '.env.local\napp/android/keystore.properties\napp/src/build-info.ts\n');
+  put('app/app.json', { expo: { version: '0.2.0', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
+  put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.0\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
@@ -46,12 +47,18 @@ describe('ci-tools.json', () => {
   it('refuses a missing, misspelt or malformed setting', () => {
     expect(validate(structuredClone(minimal))).toEqual(minimal);
     expect(validate(structuredClone(full))).toEqual(full);
-    expect(() => validate({ ci: minimal.ci })).toThrow(/name is required/);
+    const { name: _name, ...nameless } = minimal;
+    expect(() => validate(nameless)).toThrow(/name is required/);
     expect(() => validate({ ...minimal, nmae: 'x' })).toThrow(/unknown key nmae/);
     expect(() => validate({ ...minimal, name: '' })).toThrow(/invalid value/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, mediaStroe: true } })).toThrow(/unknown key ci\.mediaStroe/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, browserSuites: ['test:e2e'] } })).toThrow(/ci\.browserSuites/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, emulatorSecrets: { SENTRY_DSN: "it's" } } })).toThrow(/ci\.emulatorSecrets/);
+    const { build: _build, ...buildless } = minimal;
+    expect(() => validate(buildless)).toThrow(/build is required/);
+    expect(() => validate({ ...minimal, build: {} })).toThrow(/build\.sentryDsnVariable is required/);
+    expect(() => validate({ ...minimal, build: { ...minimal.build, sentryDsn: 'x' } })).toThrow(/unknown key build\.sentryDsn;/);
+    expect(() => validate({ ...minimal, build: { sentryDsnVariable: 'SENTRY_DSN' } })).toThrow(/build\.sentryDsnVariable has an invalid value/);
     const { root, put } = app();
     put('ci-tools.json', '{ not json');
     expect(() => config(root)).toThrow(/cannot read/);
@@ -142,16 +149,18 @@ describe('check-app', () => {
     expect(problems(app().root)).toEqual([]);
   });
 
-  it('reports a secret file Git would pick up, bad identifiers and a stale functions lock', () => {
+  it('reports a secret or stamp Git would pick up, bad identifiers, unrecorded release and stale functions lock', () => {
     const { root, put } = app();
     put('.gitignore', '.env.local\n');
-    put('app/app.json', { expo: { android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
+    put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>' } } });
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
-    expect(found).toHaveLength(3);
+    expect(found).toHaveLength(5);
     expect(found[0]).toMatch(/does not cover app\/android\/keystore\.properties/);
-    expect(found[1]).toMatch(/identifier/);
-    expect(found[2]).toMatch(/out of step/);
+    expect(found[1]).toMatch(/does not cover app\/src\/build-info\.ts, which every build writes/);
+    expect(found[2]).toMatch(/identifier/);
+    expect(found[3]).toMatch(/no deploy-log entry for v0\.3\.0/);
+    expect(found[4]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
   });
 });

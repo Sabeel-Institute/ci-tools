@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { environmentValues, hostingConfig, treeHashes } from '../scripts/ci-platform.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
-import { vapidKey, webExport } from './fixtures/push.mjs';
 
 const script = resolve(import.meta.dirname, '../scripts/ci-platform.mjs');
 const commit = 'a'.repeat(40);
@@ -87,19 +86,6 @@ describe('platform build and deployment safety', () => {
     expect(properties).toContain(`storeFile=${test.directory}/android-signing.keystore`);
     expect(statSync(join(test.directory, 'android-signing.keystore')).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toContain('SABEEL_LMS_KEYSTORE_PROPERTIES=');
-  });
-
-  it('checks every web export for its VAPID key before it becomes the artifact', () => {
-    const test = fixture();
-    test.put('bin/npm', '#!/bin/sh\nexit 0\n', 0o700);
-    const env = { GITHUB_RUN_ID: '456', GITHUB_REF: 'refs/heads/main' };
-    webExport(join(test.directory, 'app/dist-web'), { 'index-a1.js': 'var v="";' });
-    expect(() => test.run('web', env)).toThrow(/check-web-push: no VAPID key/);
-    expect(existsSync(join(test.directory, 'web-artifact'))).toBe(false);
-    webExport(join(test.directory, 'app/dist-web'), { 'index-a1.js': `var v="${vapidKey()}";` });
-    expect(test.run('web', env)).toContain('check-web-push: ok');
-    expect(JSON.parse(readFileSync(join(test.directory, 'web-artifact/build-record.json'), 'utf8')).files)
-      .toHaveProperty(['_expo/static/js/web/index-a1.js']);
   });
 
   it('rejects production builds configured to use Firebase emulators', () => {

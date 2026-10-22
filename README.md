@@ -26,9 +26,16 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
+| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets and the build stamp, identifiers the premerge fixtures accept, a deploy-log entry for the app's version, `functions/package-lock.json` in step with its manifest |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
-| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
+| `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
+| `build-web [--source-maps]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp |
+| `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, the native Sentry DSN in `app/.env.local`, stamp, `gradlew bundleRelease`, then no unsigned or debug-signed bundle; `--check` stops before the build |
+| `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
+| `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
+| `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
+| `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
+| `ci-platform <task>` | Signed release builds, through `build-aab` and `build-web`, and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
@@ -82,6 +89,23 @@ they are. Apple's key is Secret Manager's `APNS_KEY` for `check-push` and
 `~/.apns/AuthKey_<APNS_KEY_ID>.p8` for `send-test-push`, or for either the file
 `APNS_KEY_FILE` names; it is never printed. FCM authenticates as Application
 Default Credentials, or as `CHECK_ACCESS_TOKEN` when set.
+
+## Builds
+
+Every app builds the same way, so CI runs these commands rather than looking
+for an app's own scripts. Each app's `package.json` runs them too:
+
+| Script | Runs |
+|---|---|
+| `prepare` | `npm run build -w @sabeel/shared && sabeel-ci build-info`, so `app/src/build-info.ts` exists to compile against |
+| `web:export` (in `app/`) | `sabeel-ci build-web`, for pre-merge builds and Hosting's predeploy |
+| `build:aab` | `sabeel-ci build-aab` |
+| `start`, `android` (in `app/`) | `sabeel-ci build-info && sabeel-ci preflight-metro && expo …` |
+
+`ci-platform android` and `ci-platform web` call `build-aab` and `build-web`,
+then refuse a bundle or export that does not carry HEAD's commit or marks it
+`+`. The deploy log is `docs/PHASE_STATUS.md`, with one entry per release
+headed `### <date> — <summary> — v<version>`, written with the version bump.
 
 ## Changing ci-tools
 

@@ -3,6 +3,7 @@ import { createHash, createSign } from 'node:crypto';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { androidIdentity } from './check-version.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...options });
 const required = (name) => {
@@ -10,27 +11,6 @@ const required = (name) => {
   return process.env[name];
 };
 const fingerprint = (value) => value.replaceAll(':', '').toLowerCase();
-
-export function androidIdentity(app, gradle) {
-  const literalCode = /^\s*versionCode\s+(\d+)\b/m.exec(gradle)?.[1];
-  const literalName = /^\s*versionName\s+"([^"]+)"/m.exec(gradle)?.[1];
-  let versionCode;
-  if (literalCode && literalName) {
-    if (literalName !== app.version) throw new Error('Android native and app versions differ');
-    versionCode = Number(literalCode);
-  } else {
-    if (!/versionCode\s+computedVersionCode\b/.test(gradle) || !/versionName\s+expoVersion\b/.test(gradle)
-      || !/^\d+\.\d+\.\d+$/.test(app.version)) throw new Error('Unsupported Android version configuration');
-    const [major, minor, patch] = app.version.split('.').map(Number);
-    if (minor > 999 || patch > 999) throw new Error('Android version components exceed the versionCode scheme');
-    versionCode = major * 1000000 + minor * 1000 + patch;
-  }
-  if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2100000000
-    || (app.android.versionCode !== undefined && app.android.versionCode !== versionCode)) {
-    throw new Error('Invalid or inconsistent Android versionCode');
-  }
-  return { packageName: app.android.package, versionName: app.version, versionCode };
-}
 
 export function assertManifest(manifest, expected) {
   const root = /<manifest\b([\s\S]*?)>/.exec(manifest)?.[1] ?? '';

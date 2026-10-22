@@ -4,6 +4,9 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSyn
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { config } from '../lib/config.mjs';
+import { buildAab } from './build-aab.mjs';
+import { WEB_EXPORT, buildWeb, exportedScripts } from './build-web.mjs';
 import { checkWebPush } from './check-web-push.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { maxBuffer: 64 * 1024 * 1024, ...options });
@@ -86,22 +89,23 @@ function record(platform, artifact, additional = {}) {
   }, null, 2) + '\n');
 }
 
+// A release bundle or export carries HEAD's commit as build-info stamps it, and
+// must not be marked as built from uncommitted changes.
+function assertCommit(javascript, commit, what) {
+  if (!javascript.some((text) => text.includes(Buffer.from(commit)))) throw new Error(`${what} does not carry the build commit`);
+  if (javascript.some((text) => text.includes(Buffer.from(commit + '+')))) throw new Error(`${what} is marked as built from uncommitted changes`);
+}
+
 function android() {
   const commit = command('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
-  const env = { ...process.env, EXPO_PUBLIC_COMMIT: commit };
-  if (existsSync('scripts/gen-build-info.mjs')) command('node', ['scripts/gen-build-info.mjs'], { stdio: 'inherit', env });
-  if (existsSync('scripts/build-aab.sh')) command('bash', ['scripts/build-aab.sh'], { stdio: 'inherit', env });
-  else command('./gradlew', ['bundleRelease', '--no-daemon'], { cwd: 'app/android', stdio: 'inherit', env });
-  const bundle = 'app/android/app/build/outputs/bundle/release/app-release.aab';
+  const { bundle } = buildAab(config());
   command('jarsigner', ['-verify', bundle]);
   const certificate = command('keytool', ['-printcert', '-jarfile', bundle]).toString();
   const fingerprint = /SHA256:\s*([A-Fa-f0-9:]+)/.exec(certificate)?.[1].replaceAll(':', '').toLowerCase();
   if (!fingerprint || fingerprint !== required('ANDROID_SIGNING_CERT_SHA256').replaceAll(':', '').toLowerCase()) {
     throw new Error('AAB certificate does not match the existing release/upload key');
   }
-  const javascript = command('unzip', ['-p', bundle, 'base/assets/index.android.bundle']);
-  if (!javascript.includes(Buffer.from(commit))) throw new Error('AAB does not carry the build commit');
-  if (javascript.includes(Buffer.from(commit + '+'))) throw new Error('AAB is marked as built from uncommitted changes');
+  assertCommit([command('unzip', ['-p', bundle, 'base/assets/index.android.bundle'])], commit, 'AAB');
   const artifact = join(required('RUNNER_TEMP'), 'android-artifact');
   mkdirSync(artifact, { recursive: true });
   copyFileSync(bundle, join(artifact, 'app-release.aab'));
@@ -109,14 +113,16 @@ function android() {
 }
 
 function web() {
-  command('npm', ['run', 'web:export', '-w', '@sabeel/app'], { stdio: 'inherit' });
-  const source = resolve('app/dist-web');
+  const commit = command('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
+  buildWeb();
+  const source = resolve(WEB_EXPORT);
   console.log(checkWebPush(source));
   const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
   const hashes = treeHashes(source);
   if (!hashes['index.html'] || Object.keys(hashes).some((path) => /\.map$|(^|\/)\.env/.test(path))) {
     throw new Error('Web artifact must contain index.html and no source maps or environment files');
   }
+  assertCommit(exportedScripts().map((path) => readFileSync(path)), commit, 'Web export');
   for (const path of Object.keys(hashes)) {
     const target = join(artifact, 'site', path);
     mkdirSync(dirname(target), { recursive: true });

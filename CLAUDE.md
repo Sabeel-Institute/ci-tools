@@ -17,14 +17,14 @@ fine.
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
   that differs only by accident changes instead (`docs/PLAN.md`, stage 3).
-  Two holdovers remain until then: `ci-platform` probes for an app's
-  `gen-build-info` and `build-aab` scripts, and
-  `check-release` boots a local AVD with the app's `scripts/emulator.sh`.
-- **Scripts that run before `npm ci` use Node built-ins only:** `ci-platform`,
-  `ci-play`, `ci-hosting-smoke`, `ci-functions require-ci`, `ci-premerge
-  prepare`, `check-release`, the shell scripts. The release jobs never install
-  the app's dependencies before verifying provenance, and the device check
-  never installs them at all.
+  One holdover remains until then: `check-release` boots a local AVD with
+  the app's `scripts/emulator.sh`.
+- **Scripts that run before `npm ci` use Node built-ins only,** and so does
+  everything they import: `ci-platform` (with `build-aab`, `build-web` and
+  theirs), `ci-play` (with `check-version`), `ci-hosting-smoke`, `ci-functions
+  require-ci`, `ci-premerge prepare`, `check-release`, the shell scripts. The
+  release jobs never install the app's dependencies before verifying
+  provenance, and the device check never installs them at all.
 - **The push tools run the app's own sender.** `check-push` and
   `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
   `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
