@@ -24,12 +24,17 @@ npx sabeel-ci <command> [args] # any command below
 `sabeel-ci` runs from anywhere inside the app; each command works at the app's
 root, the directory holding `ci-tools.json`.
 
+### Setting up and checking an app
+
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets and the build stamp, identifiers the premerge fixtures accept, a deploy-log entry for the app's version, `functions/package-lock.json` in step with its manifest |
-
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest, the emulator ports in `firebase.json` and `app/src/env.ts` and the emulator project in `packages/shared` in step with `ci-tools.json`, no port of the block and no other emulator project stated in `scripts/` or `package.json` |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets and the build stamp; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
+
+### Builds and their checks
+
+| Command | What it does |
+|---|---|
 | `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
 | `build-web [--source-maps]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp |
 | `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, the native Sentry DSN in `app/.env.local`, stamp, `gradlew bundleRelease`, then no unsigned or debug-signed bundle; `--check` stops before the build |
@@ -37,41 +42,52 @@ root, the directory holding `ci-tools.json`.
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
 | `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
-| `ci-platform <task>` | Signed release builds, through `build-aab` and `build-web`, and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
 
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, signing secrets read only inside the `release-build` environment and every release checking its owner first (in the app's own workflows too), identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
-| `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
-| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `prepare-ios`, `asc-key`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
-| `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing |
+### Releases
 
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest, the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree with it) |
-| `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
-| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
-| `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing through `publish-play` |
-| `publish-play --check\|--internal` | The release bundle to Play internal testing: refuses one not signed with a release key, not HEAD's clean commit or not app.json's version; uploads a draft, completes it only once Play signs the APKs phones install with `release.appSigningCertificate`. `--check` runs the gates and proves the Play permission |
-| `release <X.Y.Z> [--notes <entry.md>] [--dry-run]` | Open the release pull request: the version, the iOS build number, the manual and the deploy-log entry, from origin/main |
+| Command | What it does |
+|---|---|
+| `release <X.Y.Z> [--notes <entry.md>] [--dry-run]` | Open the release pull request from origin/main: the version, the iOS build number, the manual and the deploy-log entry |
 | `release --ship` | On main once the owner has merged it: build, check, tag (the GitHub release, with the APKs and the manual) and publish to Play |
+| `publish-play --check\|--internal` | The release bundle to Play internal testing: refuses one not signed with a release key, not HEAD's clean commit or not `app.json`'s version; uploads a draft and completes it only once Play signs the APKs phones install with `release.appSigningCertificate`. `--check` runs the gates and proves the Play permission |
+| `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, Sentry DSN, privacy manifest |
+| `build-ios [--check]` | On a Mac: every gate, then archive and export a signed App Store `.ipa` to `build/ios/export`; never uploads. `--check` runs the gates and builds nothing |
+| `testflight-check <bundle-id> <version> <build> <commit>` | Before a TestFlight upload: the commit is the one tagged `v<version>` on GitHub, and App Store Connect has not taken the build number |
+
+### In CI
+
+| Command | What it does |
+|---|---|
+| `ci-platform <task>` | Signed release builds, through `build-aab` and `build-web`, and their provenance: `prepare-android`, `prepare-web`, `prepare-ios`, `asc-key`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
+| `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing through `publish-play` |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `android`, `ios` |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
-| `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
+| `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
+
+### Emulators and devices
+
+| Command | What it does |
+|---|---|
 | `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper` |
 | `test-emulator` | The functions workspace's emulator suites: `test:emulator:rules` without the Functions emulator, then `test:emulator:functions` with it |
 | `free-emulator-ports` | Stop this checkout's leftovers on the app's emulator ports, and the functions runtimes they orphaned |
 | `ports [<name>\|--suite]` | The app's ports, one of them, or those an emulator run binds |
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
+| `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
+| `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
+| `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
+
+### Push
+
+| Command | What it does |
+|---|---|
 | `check-push [fcm\|apple]` | Against the real project: FCM and both Apple services accept a message from it, and refuse a token that cannot exist with an answer the functions prune on |
 | `check-web-push` | The exported web bundle carries a VAPID public key and the permission path; `ci-platform web` runs it on every web build |
 | `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
-| `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
-| `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
-| `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, Sentry DSN, privacy manifest |
-| `build-ios [--check]` | On a Mac: every gate, then archive and export a signed App Store `.ipa` to `build/ios/export`; never uploads. `--check` runs the gates and builds nothing |
-| `testflight-check <bundle-id> <version> <build> <commit>` | Before a TestFlight upload: the commit is the one tagged `v<version>` on GitHub, and App Store Connect has not taken the build number |
-| `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
 
 ## ci-tools.json
 
@@ -87,12 +103,14 @@ Every key is checked; an unknown or misspelt one fails every command.
 | `ci.mediaStore` | SeaweedFS on the integration and browser runners (`WEED_BIN`) |
 | `build.sentryDsnVariable` | The `app/.env.local` variable carrying the native Sentry DSN; Android and iOS release builds refuse to run without it |
 | `ios.backgroundPlayback` | The app plays with the phone locked: `check-ios-config` requires expo-video's `supportsBackgroundPlayback` |
+| `emulators.base`, `.project`, `.extras`, `.functionsWrapper` | The app's port block, its emulators' demo project, its own extra ports and the command its Functions runs go through ("Emulator ports" below) |
+| `release.appSigningCertificate` | The SHA-256 of the certificate Play signs installed APKs with (Play Console, App integrity), as Play Console prints it |
 
 Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
 
-## Push
+## Push from the app's own code
 
 `check-push` and `send-test-push` build and send through the app's own
 functions code, run from source, so a probe or a test push is what a

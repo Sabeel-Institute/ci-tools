@@ -14,7 +14,7 @@
     "workflows"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
     "test": "vitest run",

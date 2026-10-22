@@ -16,7 +16,7 @@ fine.
 - **What differs between the apps lives in `ci-tools.json`,** declared in
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
-  that differs only by accident changes instead (`docs/PLAN.md`, stage 3).
+  that differs only by accident changes instead (`docs/PLAN.md`).
 - **Ports come from `lib/ports.mjs` and the app's `emulators.base`.** No
   script here states an app's port. `free-emulator-ports` reaches no further
   than the app's suite ports and stops only processes working inside the

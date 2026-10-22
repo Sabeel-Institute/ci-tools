@@ -1,10 +1,10 @@
 # Plan: one set of CI and support tools for the three apps
 
-Lms, Kanban and Time Tracker each carried their own copy of the same CI and
-release tooling. Eleven scripts, six workflows and their tests were identical
-across all three, kept so by hand; a dozen more were the same tool drifted
-apart. This repository becomes the one copy, and the apps change where they
-differed only by accident.
+LMS, Kanban and Time Tracker each carried their own copy of the same CI,
+release and device tooling: eleven scripts, six workflows and their tests
+identical across all three and kept so by hand, and a dozen more tools that had
+drifted apart. This repository is the one copy, and the apps change where they
+differed only by accident. When every app has migrated, this file goes.
 
 ## How an app uses it
 
@@ -21,249 +21,175 @@ differed only by accident.
 - `ci-tools.json` at the app's root holds what genuinely differs between the
   apps. Every key is declared in `lib/config.mjs`; an unknown key is an error.
 - Shared workflows are templates here (`workflows/`), rendered into the app's
-  `.github/workflows/` by `sabeel-ci workflows`; `sabeel-ci workflows --check`
-  fails CI on any drift. The workflow files stay in each app, so a change to one
-  shows in that app's pull request and GitHub's environments, OIDC claims and
-  rulesets see nothing new.
+  `.github/workflows/` by `sabeel-ci workflows`; `check-app` fails CI on any
+  drift. The workflow files stay in each app, so a change to one shows in that
+  app's pull request and GitHub's environments, OIDC claims and rulesets see
+  nothing new.
 
-## Stages
+## Where it stands
 
-1. **The identical tools.** `check-release`, `ci-android-sdk`, `ci-avd`,
-   `ci-functions`, `ci-hosting-smoke`, `ci-platform`, `ci-play`, `ci-premerge`,
-   `install-maestro`, `ios-sim-build`, `screens-report`, `app/ci-sdk.mjs`; the
-   workflows `android`, `android-publish`, `functions-deploy`, `premerge`,
-   `web`, `web-deploy`; their tests, rewritten against templates and fixtures.
-2. **The drifted tools, merged.** Done: the iOS release path (`build-ios`,
-   `check-ios-config`, `testflight-check`, `scripts/lib/load-build-env.sh`,
-   `ios.yml`, `ci-platform prepare-ios` and `asc-key`), with the apps'
-   `releaseAccess` test as `check-app`'s and the templates'. To do:
-   `native-e2e` and `native.yml`; the Android release path (`publish-play`,
-   Kanban's `build-aab.sh` gates, which source the same
-   `load-build-env.sh`); push checks (`check-push`, `check-web-push`,
-   `send-test-push`); `preflight-metro`, `check-version` (then
-   `check-ios-config` takes Apple's version rule from it), `gen-build-info`,
-   `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
-   `test-emulator.sh`, `free-emulator-ports.sh`). Done: `ci.yml` and
-   `codeql.yml`.
+Merged here: every tool the apps kept identical, and the drifted ones as one
+copy each: the CI, CodeQL, Android, Publish Android, Web, Deploy Web, Deploy
+Functions, pre-merge and iOS workflows; builds and their checks (`build-info`,
+`build-web`, `build-aab`, `check-version`, `deploy-notes`,
+`check-text-sources`, `preflight-metro`); releases (`release`, `publish-play`,
+`check-ios-config`, `build-ios`, `testflight-check`); push (`check-push`,
+`check-web-push`, `send-test-push`); emulators (`emulators`, `test-emulator`,
+`free-emulator-ports`, `ports`, `jdk21`, `emulator`); `check-app`, which holds
+what the apps' copies of these tests checked of each app.
 
-   Kanban's `build-aab.sh` gates); `preflight-metro`, `check-version`,
-   `gen-build-info`, `check-text-sources`; emulator control (`emulator.sh`,
-   `emulators.sh`, `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+Left here before the apps migrate:
 
-   Merged: the push checks. `check-push` asks FCM and both Apple services
-   (Kanban's `check-apple-push` is `check-push apple`), `send-test-push` takes
-   the destination as `key=value` pairs, and `check-web-push` runs in every
-   web build. All three apps keep one project in `.firebaserc`, the same APNs
-   key, and web push, so none needs a `ci-tools.json` setting.
+- the native flows: `native-e2e` and `native.yml` (with the apps'
+  `nativeE2e` test), the seed hook they call, `shots/native/`;
+- one Android keystore variable: `ci-platform prepare-android` still writes
+  both `SABEEL_TT_KEYSTORE_PROPERTIES` and `SABEEL_LMS_KEYSTORE_PROPERTIES`;
+- `check-release` finding the one dev sign-in heading, "Dev sign-in (emulator
+  only)", instead of four spellings.
 
-   `load-build-env.sh`, `ios.yml`); `publish-play`; push checks (`check-push`,
-   `check-web-push`, `send-test-push`); emulator control (`emulator.sh`,
-   `emulators.sh`, `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
-   Merged: build stamping and the checks before a build. `gen-build-info` is
-   `build-info`; `check-version`, `check-text-sources`, `preflight-metro` and
-   Kanban's `deploy-notes` keep their names; Kanban's `build-aab.sh` gates are
-   `build-aab`, with `build-web` beside it, and `ci-platform` builds through
-   both. Kanban's `check-web-template` stays in Kanban, as a unit test: it
-   holds Kanban's own `app/public/index.html` to its palette, and LMS and TT
-   use Expo's generated template.
+## Migrating an app
 
-2. **The drifted tools, merged.** `native-e2e` and `native.yml`; the iOS release
-   path (`build-ios.sh`, `check-ios-config`, `testflight-check`,
-   `load-build-env.sh`, `ios.yml`); the Android build (Kanban's `build-aab.sh`
-   gates); push checks (`check-push`, `check-web-push`,
-   `send-test-push`); `preflight-metro`, `check-version`, `gen-build-info`,
-   `check-text-sources`; `codeql.yml`. Merged: emulator control (`emulator`,
-   `emulators`, `test-emulator`, `free-emulator-ports`, `jdk21`, `ports`, and
-   the apps' emulator ports tests as part of `check-app`).
+One pull request per app, with its own CI green and `npx sabeel-ci check-app`
+passing.
 
-   `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
-   `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
-   Merged: `publish-play` (the three copies, one Play publisher), and the
-   release flow, `release`, from the Time Tracker's `release.mjs`, Kanban's
-   `publish-apk.sh` and the LMS's recipe in its `docs/DEPLOY.md`. `release`
-   calls the build tools by their `sabeel-ci` names (`build-aab`,
-   `build-info`, `deploy-notes`), so it runs once those are merged.
-3. **The apps standardised where they differed by accident** (each in that
-   app's migration pull request, with its tests):
-   - one Android keystore variable name read by every app's Gradle build
-     (`ci-platform` writes both LMS's and TT's names today);
-   - the same build hooks under the same names (build info, version check), so
-     tools call npm scripts instead of probing for files;
-   - one push sender the push tools load from source (README, "Push"): LMS and
-     TT give `sendToApns` a message per send, as Kanban's does; Kanban's
-     `fcmMessage` stops taking the token, as LMS's and TT's; each app moves
-     `DEAD_TOKEN_CODES` from `messaging.ts` to `fcm.ts` and exports it (Kanban's
-     is `DEAD_FCM_CODES`), and adds `functions/src/testPush.ts` with a unit
-     test; the APNs key for a test push is `~/.apns/AuthKey_<id>.p8` (LMS
-     and TT look under `~/.config/sabeel-lms/` and
-     `~/.config/sabeel-time-tracker/` today); npm scripts `check:push` and
-     `check:web-push` in every app;
+### Every app
 
-   - one build stamp: every label reads `app/src/build-info.ts` from
-     `build-info`, LMS's included (it reads `EXPO_PUBLIC_COMMIT` today, which
-     never marks a dirty build);
-   - one deploy log: `docs/PHASE_STATUS.md`, one entry per release headed
-     `### <date> — <summary> — v<version>` and written with the version bump
-     (Kanban's form; TT's log is dated bullets, LMS has none);
-   - the web push check under one name, so `ci-platform web` calls it instead
-     of probing for `scripts/check-web-push.mjs`;
-
-   - the same build hooks under the same names (build info, version check, web
-     push check), so tools call npm scripts instead of probing for files;
-     `build-ios` already calls `npm run build-info` and `npm run
-     release-notes -- <version>` where `ci-tools.json` says the app has them;
-   - one emulator port layout per base (+0 Firestore … +6 logging, then fixed
-     offsets for storage, tasks, eventarc, web dev servers and the media
-     store), declared once in `ci-tools.json`;
-
-   - one emulator port layout per base (README, "Emulator ports"), declared
-     once in `ci-tools.json`, and the emulator commands' conventions: below,
-     "Emulators: each app's changes";
-   - one seed hook for the native flows (today `seed-emulator-world`,
-     `seed-native`, `seed-dev`);
-   - one heading for the emulator-only sign-in row, "Dev sign-in (emulator
-     only)" with testID `dev-sign-in`, which `check-release` must find
-     absent: Kanban has it; LMS ("Emulator sign-in (dev only)", also in its
-     staff flow and tutorial recorder) and TT ("Dev (emulator) sign-in")
-     rename theirs;
-   - the CI contract: npm scripts `lint`, `typecheck`, `test`,
-     `test:emulator`, `test:screens` and the other browser suites (Kanban
-     names its six; LMS's become plain npm scripts), screenshots under
-     `shots/` (TT moves off `e2e-shots/`), Kanban's migration end-to-end
-     run inside its `test:emulator`, Kanban's web export left to the
-     pre-merge web job;
-   - Kanban clears its dead-code findings and turns on `ci.knip` (dozens of
-     unused exports and types today; until then `ci.knip` is off for it).
-
-   - one label (and testID) for the emulator-only sign-in row, which
-     `check-release` must find absent (four spellings today);
-   - the version written once, in `app/app.json`: the LMS's build.gradle
-     computes versionCode and versionName from it as Kanban's and the Time
-     Tracker's do (its next code is 2002; Play has 39), app.json drops
-     `android.versionCode`, and the LMS's update gate computes its own code
-     from the version;
-   - the iOS build number is the versionCode (`release` writes it), so each
-     version goes to TestFlight once, as it goes to Play once;
-   - the Play publishing key in `PLAY_KEY` (Kanban's `SK_PLAY_KEY` goes), and
-     the certificate Play signs installs with in `release.appSigningCertificate`
-     (Kanban's is the Google-generated key; the others' their release key);
-   - one release flow, `sabeel-ci release`: a `## Deploy log` section in
-     `docs/PHASE_STATUS.md` with `### <date> — <summary> — vX.Y.Z` entries,
-     newest first; a manual renderer that reads the version from app.json (the
-     Time Tracker's states it); build.gradle's ABI splits with a universal APK
-     (the Time Tracker builds twice); APKs named `<expo.slug>-<abi>.apk`,
-     arm64-v8a and universal (Kanban attaches four).
-4. **Each app migrates** in one pull request: the pin, `ci-tools.json`, rendered
-   workflows, its copies deleted, its docs pointing here.
-
-App-specific tools stay in the apps: `screens-e2e`, `web-e2e`, seeds,
-migrations, backfills, LMS's media store.
-
-## Build stamping and checks: the apps' part
-
-Every app, at migration:
-
-- `ci-tools.json`: `build.sentryDsnVariable`, the variable its native Sentry
-  setup reads (LMS `EXPO_PUBLIC_SENTRY_DSN_ANDROID`, Kanban
-  `EXPO_PUBLIC_SENTRY_DSN_NATIVE`, TT `EXPO_PUBLIC_SENTRY_DSN`).
-- `package.json`: `prepare` ends `&& sabeel-ci build-info`; `build:aab`,
+- **The pin and the settings.** `npm install --save-dev
+  github:Sabeel-Institute/ci-tools#<sha>`; `ci-tools.json` (values below);
+  `npx sabeel-ci workflows`; the app's copies of every merged script and of the
+  tests that moved here deleted, and every caller and document pointing at
+  `sabeel-ci`.
+- **The CI contract.** npm scripts `lint`, `typecheck`, `test`,
+  `test:emulator` and each of `ci.browserSuites`; screenshots under `shots/`.
+- **Builds.** `prepare` ends `&& sabeel-ci build-info`; `build:aab`,
   `check:version` and `check:text` run `sabeel-ci build-aab`, `check-version`
-  and `check-text-sources`, and `lint` runs the last two.
-- `app/package.json`: `web:export` is `sabeel-ci build-web`; `start` and
-  `android` begin `sabeel-ci build-info && sabeel-ci preflight-metro &&`.
-- Its copies of the merged scripts deleted, and every caller and document
-  pointing at `sabeel-ci`.
+  and `check-text-sources`, and `lint` runs the last two. In `app/`:
+  `web:export` is `sabeel-ci build-web`; `start` and `android` begin
+  `sabeel-ci build-info && sabeel-ci preflight-metro &&`. `.gitignore`
+  covers `app/src/build-info.ts`, and the sign-in label reads it.
+- **The deploy log.** `docs/PHASE_STATUS.md` has a `## Deploy log`, newest
+  first, one `### <YYYY-MM-DD> — <summary> — vX.Y.Z` entry per release,
+  written with the version bump; one for the current version.
+- **The version, written once.** `app/app.json`'s `expo.version`;
+  `build.gradle` derives `versionCode computedVersionCode` and `versionName
+  expoVersion`; app.json states no `android.versionCode`; `ios.buildNumber`
+  is the versionCode, as a string.
+- **Releases.** `sabeel-ci release X.Y.Z --notes <entry>` opens the release
+  pull request; `--ship` on main after the owner merges it. TestFlight takes
+  only the iOS workflow's build of the commit tagged `v<version>` (`gh workflow
+  run ios.yml --ref vX.Y.Z -f testflight=true`), once per version; nothing
+  uploads from a Mac. `PLAY_KEY` names the Play key file. `publish:play`,
+  `publish-play.mjs` and the app's release script go. `check:ios` and
+  `build:ios` run `sabeel-ci check-ios-config` and `build-ios`; `.gitignore`
+  covers `build/` and `app/.env.sentry-build-plugin`.
+- **Push.** `functions/src/fcm.ts` exports `DEAD_TOKEN_CODES` (moved from
+  `messaging.ts`) and `fcmMessage(message)` without a token;
+  `functions/src/apns.ts` takes `sendToApns(sends, credentials)`, a message
+  per send; a new `functions/src/testPush.ts` with its unit test (README,
+  "Push from the app's own code"); `check:push` and `check:web-push` run
+  `sabeel-ci`; the APNs key for a test push is `~/.apns/AuthKey_<id>.p8`.
+- **Emulators.** `test:emulator`, `emulators` and `emulators:free` run
+  `sabeel-ci test-emulator`, `emulators` and `free-emulator-ports`; the
+  functions workspace's passes are `test:emulator:rules` and
+  `test:emulator:functions`; scripts read ports from `ports(config(root))` or
+  `sabeel-ci ports <name>`, JDK 21 from `sabeel-ci jdk21`, the project from
+  `config(root).emulators.project`, and state no port of the block, comments
+  included. Local settings are `SABEEL_AVD`, `SABEEL_JDK21_HOME`,
+  `SABEEL_STOP_GRADLE`.
+- **The dev sign-in row** is headed "Dev sign-in (emulator only)", testID
+  `dev-sign-in`.
 
-And each its own:
-
-- LMS: `.gitignore` covers `app/src/build-info.ts`; `app/src/buildInfo.ts`
-  builds `BUILD_LABEL` from `BUILD_INFO`; `web:export:maps` is `sabeel-ci
-  build-web --source-maps`; `EXPO_PUBLIC_COMMIT` goes from `app/package.json`,
-  `build-ios.sh` and the docs; a deploy-log entry for the current version.
-- Kanban: `check-web-template` becomes a unit test; the raw BEL in
-  `packages/shared/test/attachments.test.ts` becomes `\u0007`; `build.gradle`
-  applies `sentry.gradle` when `app/.env.sentry-build-plugin` exists as well
-  as when `SENTRY_AUTH_TOKEN` is set, and warns when neither is, which
-  `build-aab.sh` did by sourcing `load-build-env.sh` and warning itself.
-- TT: a deploy-log entry heading for the current version, and `release.mjs`
-  writing its notes into the deploy log in the release pull request.
-
-## Emulators: each app's changes
+### LMS
 
 `ci-tools.json`:
 
-| App | `emulators` |
-|---|---|
-| LMS | `{ "base": 61300, "project": "demo-sabeel-recordings", "extras": { "master": 20, "masterGrpc": 21, "volume": 22, "volumeGrpc": 23, "filer": 24, "filerGrpc": 25, "s3Grpc": 26, "s3": 27 }, "functionsWrapper": ["node", "scripts/with-media-store.mjs"] }` |
-| Kanban | `{ "base": 61200, "project": "demo-sabeel-kanban" }` |
-| Time Tracker | `{ "base": 61000, "project": "demo-sabeel" }` |
+```json
+{
+  "name": "lms",
+  "ci": {
+    "browserSuites": ["test:screens", "test:e2e"],
+    "emulatorSecrets": { "SENTRY_DSN": "disabled", "R2_READ_KEY_ID": "unused-in-emulator", "R2_READ_SECRET": "unused-in-emulator", "R2_WRITE_KEY_ID": "unused-in-emulator", "R2_WRITE_SECRET": "unused-in-emulator", "APNS_KEY": "unused-in-emulator" },
+    "knip": true, "ffmpeg": true, "mediaStore": true
+  },
+  "build": { "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_ANDROID" },
+  "ios": { "backgroundPlayback": true },
+  "emulators": { "base": 61300, "project": "demo-sabeel-recordings", "extras": { "master": 20, "masterGrpc": 21, "volume": 22, "volumeGrpc": 23, "filer": 24, "filerGrpc": 25, "s3Grpc": 26, "s3": 27 }, "functionsWrapper": ["node", "scripts/with-media-store.mjs"] },
+  "release": { "appSigningCertificate": "E8:C3:7E:B6:5E:BA:D0:C9:DF:57:D4:58:68:58:D4:59:F9:7F:A4:7E:FB:5D:28:D3:06:0A:79:E9:11:00:FF:D5" }
+}
+```
 
-Ports that move or are newly pinned:
+- The version: `build.gradle` takes Time Tracker's computed block (its next
+  code is 2002; Play has 39); app.json drops `android.versionCode` and sets
+  `ios.buildNumber` to `"2001"`; `BUILD_VERSION_CODE` is computed from the
+  version, `appVersion.test.ts` becomes a test against `lib/version.mjs`'s
+  `versionCode`, and `set-min-version` takes X.Y.Z.
+- The build stamp: `app/src/buildInfo.ts` builds `BUILD_LABEL` from
+  `BUILD_INFO`; `EXPO_PUBLIC_COMMIT` goes from `app/package.json`,
+  `build-ios.sh` and the docs; `web:export:maps` is `sabeel-ci build-web
+  --source-maps`; a `## Deploy log` with a v0.2.1 entry.
+- Ports: the media store's S3 moves 61307 → 61327
+  (`functions/.env.demo-sabeel-recordings` `MEDIA_S3_ENDPOINT`), the
+  walkthrough's web server 61311 → 61310 and the sweep's 61310 → 61311;
+  `scripts/lib/media-store.mjs`, `e2e-stack.sh` and `native-e2e.sh` (its `adb
+  reverse`) read them from ci-tools; `scripts/lib/project.mjs` goes.
+- The sign-in heading is renamed from "Emulator sign-in (dev only)", with the
+  staff flow and the tutorial recorder.
+- `docs/DEPLOY.md` runs TestFlight with `--ref vX.Y.Z`.
 
-| App | Service | From | To |
-|---|---|---|---|
-| LMS | media store S3 (`s3`) | 61307 | 61327 |
-| LMS | the walkthrough's web dev server (`web`) | 61311 | 61310 |
-| LMS | the screens sweep's web dev server (`sweep`) | 61310 | 61311 |
-| Kanban | Cloud Tasks (`tasks`) | unpinned (9499) | 61208 |
-| Kanban | Eventarc (`eventarc`) | unpinned (9299) | 61209 |
-| Time Tracker | Eventarc (`eventarc`) | 61007 | 61009 |
+### Kanban
 
-In every app:
+`ci-tools.json`: `name` `kanban`; `ci.browserSuites` `test:screens`,
+`test:e2e`, `test:e2e:attachments`, `test:e2e:stats`, `test:e2e:richtext`,
+`test:e2e:typing-perf`; `ci.emulatorSecrets` `SENTRY_DSN: disabled`,
+`APNS_KEY: unused-in-emulator`; `ci.knip` off until its dead-code findings are
+cleared; `build.sentryDsnVariable` `EXPO_PUBLIC_SENTRY_DSN_NATIVE`;
+`emulators` `{ "base": 61200, "project": "demo-sabeel-kanban" }`;
+`release.appSigningCertificate`: Play's app signing certificate (the owner's
+to read from Play Console; not the upload key).
 
-- `package.json`: `"test:emulator": "sabeel-ci test-emulator"`, `"emulators":
-  "sabeel-ci emulators"`, `"emulators:free": "sabeel-ci
-  free-emulator-ports"` (Time Tracker gains `emulators`, Kanban
-  `emulators:free`).
-- `functions/package.json`: the two passes are `test:emulator:rules` (no
-  Functions emulator) and `test:emulator:functions`. LMS renames `test:rules`
-  and `test:integration`; Kanban `test:integration:rules` and
-  `test:integration:fn` (and its suite-coverage test, which reads them); Time
-  Tracker `test:integration` and `test:gate`.
-- Deleted: `scripts/emulator.sh`, `scripts/test-emulator.sh`,
-  `scripts/lib/ports.mjs`, and each app's emulator ports test; LMS and Kanban
-  `scripts/emulators.sh`; LMS and Time Tracker `scripts/free-emulator-ports.sh`;
-  LMS `scripts/lib/jdk21.sh` and `scripts/lib/project.mjs`; Kanban
-  `scripts/jdk21.sh`.
-- Node scripts read ports with `ports(config(root))` from
-  `@sabeel-institute/ci-tools/lib/ports.mjs` and `lib/config.mjs`, and the
-  emulator project from `config(root).emulators.project`. Shell scripts read
-  them with `npx --no sabeel-ci ports <name>`, find JDK 21 with
-  `JAVA_HOME=$(npx --no sabeel-ci jdk21)`, and free ports with `npx --no
-  sabeel-ci free-emulator-ports`. No script or `package.json` states a port of
-  the block, a comment's copy-paste line included: `check-app` refuses it.
-- One name for each local setting: `SABEEL_AVD` (was `SR_AVD`, `SK_AVD`,
-  `ST_AVD`), `SABEEL_JDK21_HOME` (was `SR_`, `SK_`, `ST_JDK21_HOME`; the
-  bootstrap's `--jdk21-aliases SABEEL` sets it), `SABEEL_STOP_GRADLE` (was
-  Kanban's `SK_STOP_GRADLE`).
+- npm scripts for its six browser suites; its migration end-to-end runs inside
+  `test:emulator`; CI's quality job no longer exports the web app (the
+  pre-merge web job does).
+- `firebase.json` pins `tasks` (61208) and `eventarc` (61209); `dev.sh`,
+  `e2e-all.sh` and `dev:web` read their ports from ci-tools.
+- `check-web-template` becomes a unit test; the raw BEL byte in
+  `packages/shared/test/attachments.test.ts` is written `\u0007`;
+  `build.gradle` applies `sentry.gradle` when `app/.env.sentry-build-plugin`
+  exists and warns when nothing would upload source maps.
+- Push: `DEAD_FCM_CODES` becomes `DEAD_TOKEN_CODES`; `check:apple-push` is
+  `check:push -- apple`.
+- Releases: `expo-notifications` in `app.json`'s plugins; `ios.buildNumber`
+  `"12002"`; `docs/USER-MANUAL.md`'s version line matches app.json; `PLAY_KEY`
+  (was `SK_PLAY_KEY`); `publish-apk.sh` and its test go; release APKs are
+  arm64-v8a and universal, named `<expo.slug>-<abi>.apk`.
 
-Per app, beyond that:
+### Time Tracker
 
-- **LMS**: `functions/.env.demo-sabeel-recordings` `MEDIA_S3_ENDPOINT` to
-  `http://127.0.0.1:61327`; `scripts/lib/media-store.mjs` takes its ports and
-  dev-server origins from `ports()`; `e2e-stack.sh` takes `sweep` and `web`;
-  `native-e2e.sh` maps `adb reverse` for `s3` and seeds through `web`.
-- **Kanban**: `firebase.json` pins `tasks` and `eventarc`; `dev.sh` and
-  `e2e-all.sh` build their port lists from `sabeel-ci ports` (Metro's 8081
-  and idb's 10882 stay literal, outside the block); `dev:web` serves on
-  `$(sabeel-ci ports web)`; the operator scripts' usage lines read
-  `FIRESTORE_EMULATOR_HOST=127.0.0.1:$(npx --no sabeel-ci ports firestore)`.
-- **Time Tracker**: `firebase.json` moves `eventarc`; `scripts/lib/e2e-stack.mjs`
-  takes ports, project, JDK and the port sweep from ci-tools; `.gitignore`
-  covers `shots/`, where `sabeel-ci emulator shot` writes.
+`ci-tools.json`: `name` `time-tracker`; `ci.browserSuites` `test:screens`,
+`test:e2e`; `ci.emulatorSecrets` `SENTRY_DSN: disabled`, `APNS_KEY:
+unused-in-emulator`; `ci.knip` on; `build.sentryDsnVariable`
+`EXPO_PUBLIC_SENTRY_DSN`; `emulators` `{ "base": 61000, "project":
+"demo-sabeel" }`; `release.appSigningCertificate`
+`B1:61:7E:20:81:67:E4:0D:16:4E:38:CB:BA:29:48:7C:96:AE:5A:6F:E4:76:A7:37:17:5A:CC:91:B3:A5:99:6E`.
+
+- Screenshots move from `e2e-shots/` to `shots/`.
+- The sign-in heading is renamed from "Dev (emulator) sign-in".
+- The deploy log becomes newest-first `###` entries, with one for v0.29.1.
+- `firebase.json` moves `eventarc` 61007 → 61009; `scripts/lib/e2e-stack.mjs`
+  takes ports, project, JDK and the port sweep from ci-tools.
+- `build.gradle` gains LMS's ABI splits with a universal APK;
+  `docs/render-manual.py` reads the version from app.json; `ios.buildNumber`
+  `"29001"`; `release.mjs` and `releaseOrder.test.ts` go.
+
+## Open decisions for the owner
+
+- Kanban's Play app signing certificate, for `release.appSigningCertificate`.
+- Whether `release --ship` builds the Play bundle locally, as Time Tracker's
+  flow does, or publishes the bundle CI built and checked on an emulator, as
+  LMS 0.2.1 went out.
+- One name for the native Sentry DSN variable in every app, which means
+  editing each `APP_ENV_LOCAL` secret and its copy in the vault.
 
 ## Assertions waiting for their templates
 
-The apps' copies of these tests also checked workflows that are not templates
-yet. Each comes back here with its template:
-
-- `ios.yml`: built on main pushes, TestFlight only on a manual run with
-  `testflight`; release-build environment for both jobs; the owner check first.
-- `native.yml`, with `nativeE2e`; `releaseAccess` over every template.
-
-- `ci.yml`: the fail-closed `build-test` gate over every job, actionlint
-  1.7.12 checksum-pinned with shellcheck, the screens report on every sweep
-  (`if: always()`, kept as the `screens-report` artifact).
-- `codeql.yml`: `javascript-typescript`, `build-mode: none`, scheduled, no
-  secrets, no `pull_request_target`.
-- `native.yml`, with `nativeE2e`.
+- `native.yml`, with the apps' `nativeE2e` test.

@@ -23,11 +23,10 @@ Unreleased
 - The push checks, merged: ``check-push`` (FCM and both Apple services;
   ``check-push apple`` is Kanban's ``check-apple-push``), ``check-web-push``
   and ``send-test-push``. They send through the app's own functions code,
-  which each app brings to the contract in README's "Push" when it migrates
-  (``docs/PLAN.md``, stage 3). ``ci-platform web`` runs ``check-web-push`` on
+  which each app brings to the contract in README's "Push from the app's own
+  code" when it migrates (``docs/PLAN.md``). ``ci-platform web`` runs ``check-web-push`` on
   every web build, not only when the app has a copy; the check reads the
   scripts ``index.html`` loads and requires the key to be a P-256 point.
-
 - Build stamping and the checks before a build, one way in every app:
   ``build-info`` (Kanban's and the Time Tracker's ``gen-build-info``; LMS
   stamps the same file instead of ``EXPO_PUBLIC_COMMIT``), ``build-web``,
@@ -41,7 +40,6 @@ Unreleased
   ``ci-tools.json`` requires ``build.sentryDsnVariable``; ``check-app`` wants
   ``app/src/build-info.ts`` ignored and a deploy-log entry for the app's
   version.
-
 - The iOS release path, merged from the apps' drifted copies: ``build-ios``,
   ``check-ios-config``, ``testflight-check``, the ``load-build-env`` loader
   and the ``ios`` workflow template, with ``ci-platform prepare-ios`` and
@@ -53,7 +51,6 @@ Unreleased
   app that plays with the phone locked sets ``ios.backgroundPlayback``.
   ``check-app`` holds the release-access rules over every workflow an app
   has and requires ``.gitignore`` to cover ``app/.env.sentry-build-plugin``.
-
 - Emulator control, merged from the apps' drifted copies: ``emulator`` (the
   local AVD), ``emulators``, ``test-emulator``, ``free-emulator-ports``,
   ``jdk21`` and ``ports``. One port layout for every app, computed from
@@ -66,7 +63,6 @@ Unreleased
   pins Cloud Tasks and Eventarc, Time Tracker moves Eventarc to 61009, and the
   functions workspaces name their passes ``test:emulator:rules`` and
   ``test:emulator:functions`` (``docs/PLAN.md``).
-
 - ``publish-play``: the one Play publisher, merged from the apps' three copies
   with every safeguard any of them had. It needs ``release.appSigningCertificate``
   in ``ci-tools.json`` (the certificate Play signs installs with) and the
