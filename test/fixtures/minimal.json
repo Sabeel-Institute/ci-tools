@@ -1,1 +1,6 @@
-{ "name": "example" }
+{
+  "name": "example",
+  "build": {
+    "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
+  }
+}

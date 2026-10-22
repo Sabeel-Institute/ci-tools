@@ -35,17 +35,28 @@ differed only by accident.
    `web`, `web-deploy`; their tests, rewritten against templates and fixtures.
 2. **The drifted tools, merged.** `native-e2e` and `native.yml`; the iOS release
    path (`build-ios.sh`, `check-ios-config`, `testflight-check`,
-   `load-build-env.sh`, `ios.yml`); the Android release path (`publish-play`,
-   Kanban's `build-aab.sh` gates); push checks (`check-push`, `check-web-push`,
-   `send-test-push`); `preflight-metro`, `check-version`, `gen-build-info`,
-   `check-text-sources`; emulator control (`emulator.sh`, `emulators.sh`,
-   `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+   `load-build-env.sh`, `ios.yml`); `publish-play`; push checks (`check-push`,
+   `check-web-push`, `send-test-push`); emulator control (`emulator.sh`,
+   `emulators.sh`, `test-emulator.sh`, `free-emulator-ports.sh`); `codeql.yml`.
+   Merged: build stamping and the checks before a build. `gen-build-info` is
+   `build-info`; `check-version`, `check-text-sources`, `preflight-metro` and
+   Kanban's `deploy-notes` keep their names; Kanban's `build-aab.sh` gates are
+   `build-aab`, with `build-web` beside it, and `ci-platform` builds through
+   both. Kanban's `check-web-template` stays in Kanban, as a unit test: it
+   holds Kanban's own `app/public/index.html` to its palette, and LMS and TT
+   use Expo's generated template.
 3. **The apps standardised where they differed by accident** (each in that
    app's migration pull request, with its tests):
    - one Android keystore variable name read by every app's Gradle build
      (`ci-platform` writes both LMS's and TT's names today);
-   - the same build hooks under the same names (build info, version check, web
-     push check), so tools call npm scripts instead of probing for files;
+   - one build stamp: every label reads `app/src/build-info.ts` from
+     `build-info`, LMS's included (it reads `EXPO_PUBLIC_COMMIT` today, which
+     never marks a dirty build);
+   - one deploy log: `docs/PHASE_STATUS.md`, one entry per release headed
+     `### <date> — <summary> — v<version>` and written with the version bump
+     (Kanban's form; TT's log is dated bullets, LMS has none);
+   - the web push check under one name, so `ci-platform web` calls it instead
+     of probing for `scripts/check-web-push.mjs`;
    - one emulator port layout per base (+0 Firestore … +6 logging, then fixed
      offsets for storage, tasks, eventarc, web dev servers and the media
      store), declared once in `ci-tools.json`;
@@ -58,6 +69,35 @@ differed only by accident.
 
 App-specific tools stay in the apps: `screens-e2e`, `web-e2e`, seeds,
 migrations, backfills, LMS's media store.
+
+## Build stamping and checks: the apps' part
+
+Every app, at migration:
+
+- `ci-tools.json`: `build.sentryDsnVariable`, the variable its native Sentry
+  setup reads (LMS `EXPO_PUBLIC_SENTRY_DSN_ANDROID`, Kanban
+  `EXPO_PUBLIC_SENTRY_DSN_NATIVE`, TT `EXPO_PUBLIC_SENTRY_DSN`).
+- `package.json`: `prepare` ends `&& sabeel-ci build-info`; `build:aab`,
+  `check:version` and `check:text` run `sabeel-ci build-aab`, `check-version`
+  and `check-text-sources`, and `lint` runs the last two.
+- `app/package.json`: `web:export` is `sabeel-ci build-web`; `start` and
+  `android` begin `sabeel-ci build-info && sabeel-ci preflight-metro &&`.
+- Its copies of the merged scripts deleted, and every caller and document
+  pointing at `sabeel-ci`.
+
+And each its own:
+
+- LMS: `.gitignore` covers `app/src/build-info.ts`; `app/src/buildInfo.ts`
+  builds `BUILD_LABEL` from `BUILD_INFO`; `web:export:maps` is `sabeel-ci
+  build-web --source-maps`; `EXPO_PUBLIC_COMMIT` goes from `app/package.json`,
+  `build-ios.sh` and the docs; a deploy-log entry for the current version.
+- Kanban: `check-web-template` becomes a unit test; the raw BEL in
+  `packages/shared/test/attachments.test.ts` becomes `\u0007`; `build.gradle`
+  applies `sentry.gradle` when `app/.env.sentry-build-plugin` exists as well
+  as when `SENTRY_AUTH_TOKEN` is set, and warns when neither is, which
+  `build-aab.sh` did by sourcing `load-build-env.sh` and warning itself.
+- TT: a deploy-log entry heading for the current version, and `release.mjs`
+  writing its notes into the deploy log in the release pull request.
 
 ## Assertions waiting for their templates
 

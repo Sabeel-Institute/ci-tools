@@ -4,7 +4,8 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { androidIdentity, assertManifest, checkPlayAccess } from '../scripts/ci-play.mjs';
+import { assertManifest, checkPlayAccess } from '../scripts/ci-play.mjs';
+import { androidIdentity } from '../scripts/check-version.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -40,8 +41,12 @@ function fixture() {
   put('play-artifact/build-record.json', JSON.stringify(record));
   put('app/app.json', JSON.stringify({ expo: app }));
   put('app/android/app/build.gradle', gradle);
+  put('app/src/App.tsx', '');
+  put('ci-tools.json', JSON.stringify(full));
+  put('docs/PHASE_STATUS.md', '### 2026-10-21 — Fixture — v0.2.0\n');
+  put('app/.env.local', 'EXPO_PUBLIC_SENTRY_DSN_NATIVE=https://key@sentry.example.test/1\n');
   tool('git', 'process.stdout.write(process.argv.includes("--short") ? "' + commit.slice(0, 7) + '" : "' + commit + '");');
-  tool('jarsigner', 'process.exit(process.env.BAD_SIGNATURE ? 1 : 0);');
+  tool('jarsigner', 'if (process.argv.includes("-certs")) process.stdout.write(\'- Signed by "CN=Sabeel Institute"\\n\');\nprocess.exit(process.env.BAD_SIGNATURE ? 1 : 0);');
   tool('keytool', 'process.stdout.write("SHA256: " + (process.env.FAKE_CERT || "' + certificate + '"));');
   tool('unzip', 'process.stdout.write(process.env.FAKE_JS || "' + commit + '");');
   tool('java', 'process.stdout.write(process.env.FAKE_MANIFEST || ' + JSON.stringify(manifest) + ');');

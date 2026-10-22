@@ -3,7 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
+import { BUILD_INFO } from './build-info.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
+import { deployNotesProblem } from './deploy-notes.mjs';
 import { drift } from './workflows.mjs';
 
 /**
@@ -19,6 +21,9 @@ import { drift } from './workflows.mjs';
 /** Files the CI scripts write from secrets; Git must never pick them up. */
 export const PRIVATE_FILES = ['app/.env.local', 'app/android/keystore.properties'];
 
+/** Files every build writes; unless Git ignores them, each build is marked as built from uncommitted changes. */
+export const GENERATED_FILES = [BUILD_INFO];
+
 export function problems(root = '.') {
   const found = [];
   const attempt = (check) => {
@@ -30,18 +35,26 @@ export function problems(root = '.') {
   };
   attempt(() => (config(root), []));
   attempt(() => drift(root));
-  attempt(() => PRIVATE_FILES.flatMap((path) => {
+  const ignored = (path) => {
     try {
       execFileSync('git', ['check-ignore', '--quiet', '--no-index', path], { cwd: root, stdio: 'ignore' });
-      return [];
+      return true;
     } catch {
-      return [`.gitignore does not cover ${path}, which CI writes from a secret`];
+      return false;
     }
-  }));
+  };
+  attempt(() => PRIVATE_FILES.filter((path) => !ignored(path)).map((path) => `.gitignore does not cover ${path}, which CI writes from a secret`));
+  attempt(() => GENERATED_FILES.filter((path) => !ignored(path))
+    .map((path) => `.gitignore does not cover ${path}, which every build writes, so each build is marked as built from uncommitted changes`));
   attempt(() => {
     const app = JSON.parse(readFileSync(resolve(root, 'app/app.json'), 'utf8')).expo;
     firebaseFixtures(app);
     return [];
+  });
+  attempt(() => {
+    const { version } = JSON.parse(readFileSync(resolve(root, 'app/app.json'), 'utf8')).expo;
+    const problem = deployNotesProblem(String(version), root);
+    return problem ? [`${problem}\n    The Android release build refuses to run without it.`] : [];
   });
   attempt(() => {
     const manifest = resolve(root, 'functions/package.json');
