@@ -247,10 +247,24 @@ echo "emulator $*"`);
   });
 });
 
+const PLACEHOLDERS = 'SENTRY_DSN=disabled\nAPNS_KEY=unused-in-emulator\n';
+
+describe('sabeel-ci emulator-secrets', () => {
+  it("writes functions/.secret.local from ci.emulatorSecrets, over the app's own copy", () => {
+    const { root, env } = app();
+    writeFileSync(join(root, 'functions/.secret.local'), 'SENTRY_DSN=stale\n');
+    const result = sabeel(root, env, 'emulator-secrets');
+    expect(result.status).toBe(0);
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
+    expect(sabeel(root, env, 'emulator-secrets', 'extra').status).toBe(1);
+  });
+});
+
 describe('sabeel-ci test-emulator', () => {
   it('runs the rules pass without the Functions emulator, then the functions pass inside the wrapper', () => {
     const { root, env, log } = app();
     const result = sabeel(root, env, 'test-emulator');
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(log('fake.log')).toEqual([
@@ -284,6 +298,7 @@ describe('sabeel-ci emulators', () => {
     const { root, env, log } = app();
     const result = sabeel(root, env, 'emulators');
     expect(result.status).toBe(0);
+    expect(readFileSync(join(root, 'functions/.secret.local'), 'utf8')).toBe(PLACEHOLDERS);
     expect(result.stdout).toContain('Emulator UI: http://127.0.0.1:61904');
     expect(log('fake.log')).toEqual([
       'npm run build',

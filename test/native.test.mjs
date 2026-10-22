@@ -51,7 +51,8 @@ describe('the native flows', () => {
       expect(workflow).toContain(`name: ${step}`);
       expect(lean).not.toContain(`name: ${step}`);
     }
-    expect(lean).toContain('name: Emulator secret placeholders');
+    // native-e2e writes them through sabeel-ci emulators.
+    expect(workflow).not.toContain('name: Emulator secret placeholders');
   });
 
   it("seed the emulators with the app's one seed script, and refuse to run without it", () => {

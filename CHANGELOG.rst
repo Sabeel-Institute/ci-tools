@@ -4,6 +4,12 @@ Changelog
 Unreleased
 ----------
 
+- ``functions/.secret.local`` comes from ``ci.emulatorSecrets`` alone:
+  ``emulators`` and ``test-emulator`` write it on every run, and the new
+  ``emulator-secrets`` writes it for a stack the app starts itself (CI's
+  browser job runs it; the integration and native jobs no longer need a
+  step). ``check-app`` requires it ignored and not committed. The browser
+  job's Chromium install times out after 10 minutes.
 - The emulators' project is ``demo-sabeel-<name>``, derived from
   ``ci-tools.json``'s ``name`` (``emulatorProject()`` in ``lib/ports.mjs``,
   ``sabeel-ci ports --project``); ``emulators.project`` is gone and an app

@@ -52,7 +52,7 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
@@ -254,13 +254,23 @@ describe('check-app', () => {
     put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.3.0 · October 2026*\n');
     put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     const found = problems(root);
-    expect(found).toHaveLength(5);
+    expect(found).toHaveLength(6);
     expect(found[0]).toMatch(/does not cover app\/android\/keystore\.properties/);
     expect(found[1]).toMatch(/does not cover app\/src\/build-info\.ts, which every build writes/);
-    expect(found[2]).toMatch(/identifier/);
-    expect(found[3]).toMatch(/no deploy-log entry for v0\.3\.0/);
-    expect(found[4]).toMatch(/out of step/);
+    expect(found[2]).toMatch(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/);
+    expect(found[3]).toMatch(/identifier/);
+    expect(found[4]).toMatch(/no deploy-log entry for v0\.3\.0/);
+    expect(found[5]).toMatch(/out of step/);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it("reports the emulators' secrets file committed", () => {
+    const { root, put } = app();
+    put('functions/.secret.local', 'SENTRY_DSN=disabled\n');
+    execFileSync('git', ['add', '--force', 'functions/.secret.local'], { cwd: root });
+    expect(problems(root)).toEqual([
+      'functions/.secret.local is committed; sabeel-ci writes it from ci.emulatorSecrets, so the app keeps no copy: git rm --cached functions/.secret.local',
+    ]);
   });
 
   it('reports a build.gradle that does not take the release key from SABEEL_KEYSTORE_PROPERTIES', () => {

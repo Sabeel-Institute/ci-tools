@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets and the build stamp; no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -72,6 +72,7 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper`. A Functions worker has 120 s to load (`FUNCTIONS_DISCOVERY_TIMEOUT`, unless set), here and in `test-emulator` |
+| `emulator-secrets` | Write `functions/.secret.local` from `ci.emulatorSecrets`, for an emulator stack the app starts itself (its browser suites; CI's browser job runs it) |
 | `test-emulator` | The functions workspace's emulator suites: `test:emulator:rules` without the Functions emulator, then `test:emulator:functions` with it |
 | `free-emulator-ports` | Stop this checkout's leftovers on the app's emulator ports, and the functions runtimes they orphaned |
 | `ports [<name>\|--suite\|--project]` | The app's ports, one of them, those an emulator run binds, or the emulators' project (`demo-sabeel-<name>`) |
@@ -98,7 +99,7 @@ Every key is checked; an unknown or misspelt one fails every command.
 |---|---|
 | `name` | The app's short name: lowercase words joined by hyphens, at most 18 characters. The emulators run under the demo project `demo-sabeel-<name>` |
 | `ci.browserSuites` | The npm scripts the CI browser job runs, one runner each; `test:screens` is the sweep, and its `shots/screens/` feeds the screens report |
-| `ci.emulatorSecrets` | Each secret the functions bind in the emulators, with its placeholder (`{"SENTRY_DSN": "disabled"}`) |
+| `ci.emulatorSecrets` | Each secret the functions bind in the emulators, with its placeholder (`{"SENTRY_DSN": "disabled"}`): `functions/.secret.local`, which `emulators`, `test-emulator` and `emulator-secrets` write, so the app keeps no copy |
 | `ci.knip` | Run `npm run knip` in CI |
 | `ci.ffmpeg` | ffmpeg on the test runners |
 | `ci.mediaStore` | SeaweedFS on the integration and browser runners (`WEED_BIN`) |

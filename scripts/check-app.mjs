@@ -8,6 +8,7 @@ import { BUILD_INFO } from './build-info.mjs';
 import { BLOCK, LAYOUT, LOWEST_BASE, PINNED, STARTABLE, emulatorProject, ports } from '../lib/ports.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
+import { SECRET_LOCAL } from './lib/firebase-emulators.mjs';
 import { releaseAccessProblems } from './lib/release-access.mjs';
 import { versionedFileProblems } from './release.mjs';
 import { drift } from './workflows.mjs';
@@ -173,6 +174,15 @@ export function problems(root = '.') {
   attempt(() => PRIVATE_FILES.filter((path) => !ignored(path)).map((path) => `.gitignore does not cover ${path}, which CI writes from a secret`));
   attempt(() => GENERATED_FILES.filter((path) => !ignored(path))
     .map((path) => `.gitignore does not cover ${path}, which every build writes, so each build is marked as built from uncommitted changes`));
+  attempt(() => {
+    // sabeel-ci writes the emulators' placeholders here, and it is where the
+    // Functions emulator would read a real secret from.
+    const tracked = execFileSync('git', ['ls-files', '--', SECRET_LOCAL], { cwd: root, encoding: 'utf8' }).trim() !== '';
+    return [
+      ...(ignored(SECRET_LOCAL) ? [] : [`.gitignore does not cover ${SECRET_LOCAL}, which sabeel-ci writes for the emulators from ci.emulatorSecrets`]),
+      ...(tracked ? [`${SECRET_LOCAL} is committed; sabeel-ci writes it from ci.emulatorSecrets, so the app keeps no copy: git rm --cached ${SECRET_LOCAL}`] : []),
+    ];
+  });
   attempt(() => {
     const directory = resolve(root, '.github/workflows');
     return releaseAccessProblems(readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))

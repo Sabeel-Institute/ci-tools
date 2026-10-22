@@ -2,4 +2,3 @@
   run: npm install --global firebase-tools@^15
 # ci-tools: ffmpeg if ci.ffmpeg
 # ci-tools: media-store if ci.mediaStore
-# ci-tools: emulator-secrets

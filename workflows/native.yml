@@ -51,7 +51,6 @@ jobs:
       # ci-tools: firebase-placeholders
       # ci-tools: ffmpeg if ci.ffmpeg
       # ci-tools: media-store if ci.mediaStore
-      # ci-tools: emulator-secrets
       # ci-tools: seed-browser if native.seedWeb
       - name: Boot an Android emulator
         run: sabeel-ci ci-avd
@@ -91,7 +90,6 @@ jobs:
         run: npm install --global firebase-tools@^15
       # ci-tools: ffmpeg-macos if ci.ffmpeg
       # ci-tools: media-store-macos if ci.mediaStore
-      # ci-tools: emulator-secrets
       # ci-tools: seed-browser-macos if native.seedWeb
       - name: Install Maestro
         run: sabeel-ci install-maestro
