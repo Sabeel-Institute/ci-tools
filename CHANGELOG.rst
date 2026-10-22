@@ -11,6 +11,9 @@ Unreleased
   dev-loop terminal would otherwise ship a bundle pointed at the emulators.
   ``build-web --emulators`` builds for the emulators on purpose and sets the
   flag itself.
+- ``build-web --source-maps`` requires the debug ids itself (each script
+  hands its id to the Sentry SDK and matches its map), so a local build shows
+  what ``ci-platform web`` refuses.
 - ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
   place of the three diverged ``docs/render-manual.py`` copies, and
   ``release`` runs it. It keeps the best of them: the version from

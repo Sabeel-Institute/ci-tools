@@ -9,7 +9,7 @@ import { config } from '../lib/config.mjs';
 import { buildAab } from './build-aab.mjs';
 import { WEB_EXPORT, buildWeb, exportedScripts } from './build-web.mjs';
 import { checkWebPush } from './check-web-push.mjs';
-import { BUILD_ENV_FILE, debugIdProblems, dsnProblem } from './lib/sentry.mjs';
+import { BUILD_ENV_FILE, dsnProblem } from './lib/sentry.mjs';
 
 const command = (program, args, options = {}) => execFileSync(program, args, { maxBuffer: 64 * 1024 * 1024, ...options });
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -157,10 +157,10 @@ function android() {
   record('android', artifact, { sha256: sha256(readFileSync(bundle)), signingCertificate: fingerprint, bytes: statSync(bundle).size });
 }
 
-// The web release: built with source maps, whose debug ids must match the
-// scripts' and reach the Sentry SDK. The site Hosting serves holds no map;
-// the maps and their scripts sit beside it in the artifact, for Deploy Web to
-// upload to Sentry when it publishes the site.
+// The web release: built with source maps, whose debug ids build-web
+// requires to match the scripts' and reach the Sentry SDK. The site Hosting
+// serves holds no map; the maps and their scripts sit beside it in the
+// artifact, for Deploy Web to upload to Sentry when it publishes the site.
 function web() {
   const dsn = dsnProblem('web');
   if (dsn) throw new Error(`not building the web release:\n  - ${dsn}`);
@@ -168,8 +168,6 @@ function web() {
   buildWeb({ sourceMaps: true });
   const source = resolve(WEB_EXPORT);
   console.log(checkWebPush(source));
-  const ids = debugIdProblems(source);
-  if (ids.length) throw new Error(`the web export cannot be read in Sentry:\n${ids.map((problem) => `  - ${problem}`).join('\n')}`);
   const artifact = join(required('RUNNER_TEMP'), 'web-artifact');
   const all = Object.keys(treeHashes(source));
   const maps = all.filter((path) => path.endsWith('.map'));

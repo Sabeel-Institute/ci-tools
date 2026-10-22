@@ -36,7 +36,7 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
-| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself |
+| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself. `--source-maps` writes the maps beside the scripts and requires each script to hand its debug id to the Sentry SDK, as the release build does |
 | `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; refuses while `EXPO_PUBLIC_USE_EMULATORS` is set, as `build-web` does; `--check` stops before the build |
 | `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
@@ -182,9 +182,10 @@ run without what makes a crash readable. Pull-request builds need none of it.
 - **iOS**: `build-ios` exports the same org and native project, and the
   token from the file (`ci-platform prepare-ios` in CI); Xcode's Sentry phase
   uploads the dSYMs and the source map.
-- **Web**: `ci-platform web` exports with source maps, requires every script
-  Metro wrote to carry its debug id into the Sentry SDK, and puts the maps
-  beside the site in the artifact, never in it. Deploy Web's `sourcemaps`
+- **Web**: `ci-platform web` exports with `build-web --source-maps`, which
+  requires every script Metro wrote to carry its debug id into the Sentry SDK
+  (run locally, it shows the same), and puts the maps beside the site in the
+  artifact, never in it. Deploy Web's `sourcemaps`
   job, in `release-build` after the owner check, verifies them against the
   build record and uploads them to `sentry.projects.web` with `sentry-cli`
   2.58.6 (checksum-pinned, no npm install); the site is published only once

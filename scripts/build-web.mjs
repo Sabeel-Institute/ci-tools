@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { writeBuildInfo } from './build-info.mjs';
 import { checkVersion, versionFailure } from './check-version.mjs';
 import { EMULATOR_FLAG, emulatorFlagProblem } from './lib/emulator-flag.mjs';
+import { debugIdProblems } from './lib/sentry.mjs';
 
 /**
  * The web export, built the same way in every app: the app's `web:export`
@@ -25,7 +26,9 @@ import { EMULATOR_FLAG, emulatorFlagProblem } from './lib/emulator-flag.mjs';
  * meets it, then the commit stamp, then `expo export` with --clear, always:
  * Metro otherwise serves a cached bundle built under other EXPO_PUBLIC_* values,
  * and an emulator-mode bundle looks like any other. The export must carry the
- * stamped commit, or the sign-in label of what ships would be wrong.
+ * stamped commit, or the sign-in label of what ships would be wrong. With
+ * source maps, each script Metro wrote must carry its debug id into the Sentry
+ * SDK and match its map (debugIdProblems), as the release build requires.
  */
 export const WEB_EXPORT = 'app/dist-web';
 
@@ -49,6 +52,8 @@ export function buildWeb({ sourceMaps = false, emulators = false } = {}) {
   if (!exportedScripts().some((path) => readFileSync(path).includes(commit))) {
     throw new Error(`${WEB_EXPORT} does not carry the stamped commit ${commit}: the sign-in label would be wrong`);
   }
+  const ids = sourceMaps ? debugIdProblems(WEB_EXPORT) : [];
+  if (ids.length) throw new Error(`the web export cannot be read in Sentry:\n${list(ids)}`);
   return { version: version.version, commit };
 }
 

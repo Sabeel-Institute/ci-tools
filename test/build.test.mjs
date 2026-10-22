@@ -347,6 +347,16 @@ describe('build-web', () => {
     expect(test.calls()).toEqual(Array(2).fill('npx --no-install expo export --platform web --output-dir dist-web --clear EXPO_PUBLIC_USE_EMULATORS=1'));
   });
 
+  it('with --source-maps, requires each script to hand its debug id to the Sentry SDK and match its map', () => {
+    const test = app();
+    expect(test.run('build-web', [], { FAKE_NO_SENTRY: '1' }).status).toBe(0);
+    const unmatched = test.run('build-web', ['--source-maps'], { FAKE_NO_SENTRY: '1' });
+    expect(unmatched.status).toBe(1);
+    expect(unmatched.stderr).toContain('the web export cannot be read in Sentry:\n'
+      + '  - _expo/static/js/web/entry.js does not hand its debug id to the Sentry SDK: app/metro.config.js must build on getSentryExpoConfig');
+    expect(test.run('build-web', ['--source-maps']).status).toBe(0);
+  });
+
   it('refuses an illegal version before exporting, and an export without the stamp after', () => {
     const test = app();
     test.put('app/app.json', { expo: { version: 'v1.0.0', android: { package: 'x' } } });
