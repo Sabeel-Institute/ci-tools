@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
 import { portProblems, problems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
-import { ports, suitePorts } from '../lib/ports.mjs';
+import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
@@ -59,11 +59,11 @@ function app() {
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
-  put('functions/.env.demo-example', 'MEDIA_BUCKET=local\n');
+  put('functions/.env.demo-sabeel-example', 'MEDIA_BUCKET=local\n');
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
   put('firebase.json', { emulators: FIREBASE_EMULATORS });
   put('app/src/env.ts', ENV_TS);
-  put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-example';\n");
+  put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-sabeel-example';\n");
   put('scripts/seed.mjs', "import { ports } from '@sabeel-institute/ci-tools/lib/ports.mjs';\nconst wait = 61000; // ms, not a port\n");
   put('package.json', { scripts: { 'dev:web': 'cd app && expo start --web --port $(sabeel-ci ports web)', test: 'vitest run' } });
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -84,7 +84,7 @@ describe('ci-tools.json', () => {
     const { name: _name, ...nameless } = minimal;
     expect(() => validate(nameless)).toThrow(/name is required/);
     expect(() => validate({ ...minimal, nmae: 'x' })).toThrow(/unknown key nmae/);
-    expect(() => validate({ ...minimal, name: '' })).toThrow(/invalid value/);
+    expect(() => validate({ ...minimal, name: '' })).toThrow(/name must be lowercase words/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, mediaStroe: true } })).toThrow(/unknown key ci\.mediaStroe/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, browserSuites: ['test:e2e'] } })).toThrow(/ci\.browserSuites/);
     expect(() => validate({ ...minimal, ci: { ...minimal.ci, emulatorSecrets: { SENTRY_DSN: "it's" } } })).toThrow(/ci\.emulatorSecrets/);
@@ -109,11 +109,11 @@ describe('ci-tools.json', () => {
 describe('ci-tools.json emulators', () => {
   const settings = (emulators) => ({ ...minimal, emulators: { ...minimal.emulators, ...emulators } });
 
-  it('is required, with a base and a project', () => {
+  it('is required, with a base', () => {
     const { emulators: _emulators, ...portless } = minimal;
     expect(() => validate(portless)).toThrow(/emulators is required/);
-    expect(() => validate({ ...minimal, emulators: { base: 61900 } })).toThrow(/emulators\.project is required/);
-    expect(() => validate({ ...minimal, emulators: { project: 'demo-example' } })).toThrow(/emulators\.base is required/);
+    expect(() => validate({ ...minimal, emulators: {} })).toThrow(/emulators\.base is required/);
+    expect(() => validate({ ...minimal, emulators: { base: 61900, project: 'demo-example' } })).toThrow(/unknown key emulators\.project/);
     expect(validate(minimal)).toEqual(minimal);
     expect(validate(full)).toEqual(full);
   });
@@ -124,8 +124,12 @@ describe('ci-tools.json emulators', () => {
     }
   });
 
-  it('takes only a demo- project, so the emulators never reach a real one', () => {
-    expect(() => validate(settings({ project: 'oursabeel-lms' }))).toThrow(/emulators\.project must be a demo- project id/);
+  it('runs under demo-sabeel-<name>, so the name must make a project id', () => {
+    expect(emulatorProject(full)).toBe('demo-sabeel-example');
+    for (const name of ['Example', 'time_tracker', 'time-', '-lms', 'a'.repeat(19), '']) {
+      expect(() => validate({ ...minimal, name }), name).toThrow(/name must be lowercase words joined by hyphens, at most 18 characters/);
+    }
+    expect(validate({ ...minimal, name: 'time-tracker', emulators: { base: 61000 } }).name).toBe('time-tracker');
   });
 
   it('keeps extras inside the block, clear of the layout and of each other', () => {
@@ -138,10 +142,10 @@ describe('ci-tools.json emulators', () => {
   });
 
   it("refuses another checkout's block, or a block other than the project's own", () => {
-    expect(() => validate(settings({ base: 61200 }))).toThrow(/61200 is the block of demo-sabeel-kanban, not of demo-example/);
+    expect(() => validate(settings({ base: 61200 }))).toThrow(/61200 is the block of demo-sabeel-kanban, not of demo-sabeel-example/);
     expect(() => validate(settings({ base: 61100 }))).toThrow(/legacy sabeel-recording-app/);
-    expect(() => validate(settings({ base: 61900, project: 'demo-sabeel' }))).toThrow(/demo-sabeel owns the block at 61000, not 61900/);
-    expect(validate(settings({ base: 61000, project: 'demo-sabeel' })).emulators.base).toBe(61000);
+    expect(() => validate({ ...minimal, name: 'lms' })).toThrow(/demo-sabeel-lms \(name lms\) owns the block at 61300, not 61900/);
+    expect(validate({ ...minimal, name: 'lms', emulators: { base: 61300 } }).emulators.base).toBe(61300);
   });
 });
 
@@ -279,10 +283,12 @@ describe('check-app', () => {
     ]);
   });
 
-  it('reports a flow that does not take its app from native-e2e', () => {
+  it('reports a flow that does not take its app from native-e2e, and flows with no seed', () => {
     const { root, put } = app();
     put('maestro/board.yaml', 'appId: ${APP_ID}\n---\n- launchApp\n');
     put('maestro/common/back.yaml', 'appId: ${APP_ID}\n---\n- back\n');
+    expect(problems(root)).toEqual(['maestro/ holds flows, but there is no scripts/seed-emulators.mjs: native-e2e seeds the emulators for them with it']);
+    put('scripts/seed-emulators.mjs', "import { emulatorProject } from '@sabeel-institute/ci-tools/lib/ports.mjs';\n");
     expect(problems(root)).toEqual([]);
     put('maestro/old.yaml', 'appId: com.sabeelinstitute.example\n---\n- launchApp\n');
     expect(problems(root)).toEqual(['maestro/old.yaml does not take its app from native-e2e: it must name it as appId: ${APP_ID}']);
@@ -327,7 +333,7 @@ describe('check-app', () => {
     put('package.json', { scripts: { 'dev:web': 'expo start --web --port 61910' } });
     expect(portProblems(root)).toEqual([
       'scripts/lib/stack.sh states 61900 (firestore), 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
-      "scripts/lib/stack.sh passes --project demo-sabeel-kanban; this app's emulator project is demo-example",
+      "scripts/lib/stack.sh passes --project demo-sabeel-kanban; this app's emulator project is demo-sabeel-example",
       "scripts/old.mjs names 8080, 9099: Firebase defaults or given-up ports, not this app's",
       "scripts/old.mjs names 61203, outside this app's block 61900-61999: another checkout's",
       'package.json states 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
@@ -339,8 +345,8 @@ describe('check-app', () => {
     put('packages/shared/src/constants.ts', "export const EMULATOR_PROJECT_ID = 'demo-sabeel';\n");
     put('functions/.env.demo-sabeel', 'MEDIA_BUCKET=local\n');
     expect(portProblems(root)).toEqual([
-      'packages/shared/src/constants.ts says the emulator project is demo-sabeel; ci-tools.json emulators.project is demo-example',
-      'functions/.env.demo-sabeel is for another project: the Functions emulator reads functions/.env.demo-example',
+      "packages/shared/src/constants.ts says the emulator project is demo-sabeel; this app's is demo-sabeel-example, demo-sabeel-<name> from ci-tools.json",
+      'functions/.env.demo-sabeel is for another project: the Functions emulator reads functions/.env.demo-sabeel-example',
     ]);
   });
 

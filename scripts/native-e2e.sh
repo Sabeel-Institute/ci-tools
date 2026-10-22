@@ -16,7 +16,7 @@ set -euo pipefail
 # the installed app's id as APP_ID.
 #
 # It stamps and builds the debug app, starts the app's emulators
-# (`sabeel-ci emulators`), runs the seed ci-tools.json names in native.seed
+# (`sabeel-ci emulators`), runs the app's seed, scripts/seed-emulators.mjs
 # (with a web dev server on the app's `web` port, its address in E2E_BASE, when
 # native.seedWeb says the seed drives the web app), serves the JavaScript from
 # Metro on 8081 with EXPO_PUBLIC_USE_EMULATORS=1, and runs the flows.
@@ -33,9 +33,10 @@ METRO_PORT=8081
 # `ports` reads ci-tools.json through its checks, so the settings below are sound.
 WEB_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" web)
 FIRESTORE_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" firestore)
-SEED=$(node -p "require('./ci-tools.json').native.seed")
-SEED_WEB=$(node -p "require('./ci-tools.json').native.seedWeb === true")
-REVERSE=$(node -p "(require('./ci-tools.json').native.reversePorts ?? []).join(' ')")
+SEED=scripts/seed-emulators.mjs
+SEED_WEB=$(node -p "require('./ci-tools.json').native?.seedWeb === true")
+REVERSE=$(node -p "(require('./ci-tools.json').native?.reversePorts ?? []).join(' ')")
+[ -f "$SEED" ] || { echo "native-e2e: no $SEED, the script that seeds the emulators for the flows" >&2; exit 1; }
 
 pids_on_port() {
   if command -v ss >/dev/null; then ss -lptn "sport = :$1" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u || true

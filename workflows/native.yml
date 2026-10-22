@@ -7,7 +7,7 @@ on:
   pull_request:
     paths:
       - maestro/**
-      - {{ci-tools.native.seed}}
+      - scripts/seed-emulators.mjs
       - ci-tools.json
       - package-lock.json
       - .github/workflows/native.yml

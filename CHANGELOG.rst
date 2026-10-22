@@ -4,6 +4,17 @@ Changelog
 Unreleased
 ----------
 
+- The emulators' project is ``demo-sabeel-<name>``, derived from
+  ``ci-tools.json``'s ``name`` (``emulatorProject()`` in ``lib/ports.mjs``,
+  ``sabeel-ci ports --project``); ``emulators.project`` is gone and an app
+  that sets it fails every command. ``name`` must make a project id:
+  lowercase words joined by hyphens, at most 18 characters. The projects
+  become ``demo-sabeel-lms``, ``demo-sabeel-time-tracker`` and
+  ``demo-sabeel-kanban``; ``check-app`` holds ``EMULATOR_PROJECT_ID`` and
+  ``functions/.env.demo-sabeel-<name>`` to it.
+- The native flows' seed is ``scripts/seed-emulators.mjs`` in every app;
+  ``native.seed`` is gone. ``native-e2e`` refuses to run without it, and
+  ``check-app`` requires it where ``maestro/`` holds flows.
 - ``emulators`` and ``test-emulator`` (and ``native-e2e`` through
   ``emulators``) set ``FUNCTIONS_DISCOVERY_TIMEOUT=120`` unless the caller
   set it: firebase-tools gives a new Functions worker 30 s to load, which a

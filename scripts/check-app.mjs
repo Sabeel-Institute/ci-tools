@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
 import { versionProblems } from '../lib/version.mjs';
 import { BUILD_INFO } from './build-info.mjs';
-import { BLOCK, LAYOUT, LOWEST_BASE, PINNED, STARTABLE, ports } from '../lib/ports.mjs';
+import { BLOCK, LAYOUT, LOWEST_BASE, PINNED, STARTABLE, emulatorProject, ports } from '../lib/ports.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
 import { releaseAccessProblems } from './lib/release-access.mjs';
@@ -24,6 +24,9 @@ import { drift } from './workflows.mjs';
 
 /** Files the CI scripts write from secrets; Git must never pick them up. */
 export const PRIVATE_FILES = ['app/.env.local', 'app/.env.sentry-build-plugin', 'app/android/keystore.properties'];
+
+/** The script native-e2e seeds the emulators with for the Maestro flows. */
+export const SEED = 'scripts/seed-emulators.mjs';
 
 /** Files every build writes; unless Git ignores them, each build is marked as built from uncommitted changes. */
 export const GENERATED_FILES = [BUILD_INFO];
@@ -58,7 +61,8 @@ function scriptFiles(root, directory = 'scripts') {
  */
 export function portProblems(root = '.') {
   const settings = config(root);
-  const { base, project } = settings.emulators;
+  const { base } = settings.emulators;
+  const project = emulatorProject(settings);
   const want = ports(settings);
   const nameOf = Object.fromEntries(Object.entries(want).map(([name, port]) => [port, name]));
   const found = [];
@@ -112,7 +116,7 @@ export function portProblems(root = '.') {
 
   const shared = /EMULATOR_PROJECT_ID\s*=\s*['"]([^'"]+)['"]/.exec(readIf(root, 'packages/shared/src/constants.ts') ?? '')?.[1];
   if (shared === undefined) found.push('packages/shared/src/constants.ts has no EMULATOR_PROJECT_ID, the emulator project the app and the functions check for');
-  else if (shared !== project) found.push(`packages/shared/src/constants.ts says the emulator project is ${shared}; ci-tools.json emulators.project is ${project}`);
+  else if (shared !== project) found.push(`packages/shared/src/constants.ts says the emulator project is ${shared}; this app's is ${project}, demo-sabeel-<name> from ci-tools.json`);
   for (const name of existsSync(join(root, 'functions')) ? readdirSync(join(root, 'functions')) : []) {
     if (/^\.env\.demo-/.test(name) && name !== `.env.${project}`) {
       found.push(`functions/${name} is for another project: the Functions emulator reads functions/.env.${project}`);
@@ -208,12 +212,17 @@ export function problems(root = '.') {
   });
   attempt(() => {
     // native-e2e tells each flow the id of the build it installed, which
-    // differs between Android's debug build and iOS.
+    // differs between Android's debug build and iOS. It seeds the emulators
+    // for them with the app's one seed script.
     const directory = resolve(root, 'maestro');
     if (!existsSync(directory)) return [];
-    return readdirSync(directory, { recursive: true }).filter((name) => String(name).endsWith('.yaml'))
-      .filter((name) => !readFileSync(join(directory, String(name)), 'utf8').split('\n').includes('appId: ${APP_ID}'))
-      .map((name) => `maestro/${name} does not take its app from native-e2e: it must name it as appId: \${APP_ID}`);
+    const flows = readdirSync(directory, { recursive: true }).filter((name) => String(name).endsWith('.yaml'));
+    return [
+      ...flows.filter((name) => !readFileSync(join(directory, String(name)), 'utf8').split('\n').includes('appId: ${APP_ID}'))
+        .map((name) => `maestro/${name} does not take its app from native-e2e: it must name it as appId: \${APP_ID}`),
+      ...(flows.length && !existsSync(join(root, SEED))
+        ? [`maestro/ holds flows, but there is no ${SEED}: native-e2e seeds the emulators for them with it`] : []),
+    ];
   });
   attempt(() => {
     const manifest = resolve(root, 'functions/package.json');

@@ -74,7 +74,7 @@ root, the directory holding `ci-tools.json`.
 | `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper`. A Functions worker has 120 s to load (`FUNCTIONS_DISCOVERY_TIMEOUT`, unless set), here and in `test-emulator` |
 | `test-emulator` | The functions workspace's emulator suites: `test:emulator:rules` without the Functions emulator, then `test:emulator:functions` with it |
 | `free-emulator-ports` | Stop this checkout's leftovers on the app's emulator ports, and the functions runtimes they orphaned |
-| `ports [<name>\|--suite]` | The app's ports, one of them, or those an emulator run binds |
+| `ports [<name>\|--suite\|--project]` | The app's ports, one of them, those an emulator run binds, or the emulators' project (`demo-sabeel-<name>`) |
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
@@ -96,7 +96,7 @@ Every key is checked; an unknown or misspelt one fails every command.
 
 | Key | Meaning |
 |---|---|
-| `name` | The app's short name |
+| `name` | The app's short name: lowercase words joined by hyphens, at most 18 characters. The emulators run under the demo project `demo-sabeel-<name>` |
 | `ci.browserSuites` | The npm scripts the CI browser job runs, one runner each; `test:screens` is the sweep, and its `shots/screens/` feeds the screens report |
 | `ci.emulatorSecrets` | Each secret the functions bind in the emulators, with its placeholder (`{"SENTRY_DSN": "disabled"}`) |
 | `ci.knip` | Run `npm run knip` in CI |
@@ -104,9 +104,8 @@ Every key is checked; an unknown or misspelt one fails every command.
 | `ci.mediaStore` | SeaweedFS on the integration and browser runners (`WEED_BIN`) |
 | `build.sentryDsnVariable` | The `app/.env.local` variable carrying the native Sentry DSN; Android and iOS release builds refuse to run without it |
 | `ios.backgroundPlayback` | The app plays with the phone locked: `check-ios-config` requires expo-video's `supportsBackgroundPlayback` |
-| `emulators.base`, `.project`, `.extras`, `.functionsWrapper` | The app's port block, its emulators' demo project, its own extra ports and the command its Functions runs go through ("Emulator ports" below) |
-| `native.seed` | The script that seeds the emulators for the native flows |
-| `native.seedWeb` | The seed drives the web app: a web dev server runs on the app's `web` port for it, its address in `E2E_BASE` |
+| `emulators.base`, `.extras`, `.functionsWrapper` | The app's port block, its own extra ports and the command its Functions runs go through ("Emulator ports" below) |
+| `native.seedWeb` | The seed (`scripts/seed-emulators.mjs`) drives the web app: a web dev server runs on the app's `web` port for it, its address in `E2E_BASE` |
 | `native.reversePorts` | Ports the app reaches on this machine's `127.0.0.1`, which the Android emulator is given (`adb reverse`) |
 | `release.appSigningCertificate` | The SHA-256 of the certificate Play signs installed APKs with (Play Console, App integrity), as Play Console prints it |
 
@@ -114,7 +113,8 @@ Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
 Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
-to the build it installed. Its `.github/dependabot.yml` leaves out
+to the build it installed, and `scripts/seed-emulators.mjs` seeds the
+emulators for them, run with node from the app's root. Its `.github/dependabot.yml` leaves out
 `github-actions`: this repository's Dependabot updates the actions in the
 templates, and the app takes them with its next pin. Its `build.gradle`
 signs releases with the properties file `SABEEL_KEYSTORE_PROPERTIES` names,
@@ -182,13 +182,15 @@ block. `lib/ports.mjs` computes them: `sabeel-ci ports <name>` in shell,
 ```json
 "emulators": {
   "base": 61300,
-  "project": "demo-sabeel-recordings",
   "extras": { "master": 20, "s3": 27 },
   "functionsWrapper": ["node", "scripts/with-media-store.mjs"]
 }
 ```
 
-`project` is the emulators' demo project. `functionsWrapper` is a command
+The emulators' demo project is `demo-sabeel-<name>` (`emulatorProject(config(root))`
+from `lib/ports.mjs`, `sabeel-ci ports --project` in shell); `check-app` holds
+`EMULATOR_PROJECT_ID` in `packages/shared/src/constants.ts` and the functions'
+`functions/.env.demo-sabeel-<name>` to it. `functionsWrapper` is a command
 every run with the Functions emulator goes through, taking the run as its
 arguments: LMS starts its media store around it.
 

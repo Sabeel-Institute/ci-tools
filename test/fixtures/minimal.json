@@ -10,13 +10,9 @@
     "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_NATIVE"
   },
   "emulators": {
-    "base": 61900,
-    "project": "demo-example"
+    "base": 61900
   },
   "release": {
     "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
-  },
-  "native": {
-    "seed": "scripts/seed-native.mjs"
   }
 }

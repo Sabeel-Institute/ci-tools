@@ -106,10 +106,11 @@ const alive = (pid) => {
 };
 
 describe('sabeel-ci ports', () => {
-  it('names every port, one port, or what an emulator run binds', () => {
+  it('names every port, one port, what an emulator run binds, or its project', () => {
     const { root, env } = app();
     expect(sabeel(root, env, 'ports').stdout).toMatch(/^61900 firestore\n61901 firestoreWebsocket\n[\s\S]*61910 web\n[\s\S]*61921 storeAdmin\n$/);
     expect(sabeel(root, env, 'ports', 'web').stdout).toBe('61910\n');
+    expect(sabeel(root, env, 'ports', '--project').stdout).toBe('demo-sabeel-example\n');
     expect(sabeel(root, env, 'ports', '--suite').stdout.trim().split(' ').map(Number)).toEqual(suitePorts(full));
     const wrong = sabeel(root, env, 'ports', 'webb');
     expect(wrong.status).toBe(2);
@@ -254,9 +255,9 @@ describe('sabeel-ci test-emulator', () => {
     expect(result.status).toBe(0);
     expect(log('fake.log')).toEqual([
       'npm run build',
-      `firebase emulators:exec --project demo-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
-      'with-store around: firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions',
-      `firebase emulators:exec --project demo-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
+      `firebase emulators:exec --project demo-sabeel-example --only firestore,auth,storage npm run test:emulator:rules -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
+      'with-store around: firebase emulators:exec --project demo-sabeel-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions',
+      `firebase emulators:exec --project demo-sabeel-example --only firestore,auth,functions,storage npm run test:emulator:functions -w functions JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
     expect(result.stdout.match(/emulator ports clear/g)).toHaveLength(2);
   });
@@ -286,8 +287,8 @@ describe('sabeel-ci emulators', () => {
     expect(result.stdout).toContain('Emulator UI: http://127.0.0.1:61904');
     expect(log('fake.log')).toEqual([
       'npm run build',
-      'with-store around: firebase emulators:start --project demo-example --only firestore,auth,functions,storage',
-      `firebase emulators:start --project demo-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
+      'with-store around: firebase emulators:start --project demo-sabeel-example --only firestore,auth,functions,storage',
+      `firebase emulators:start --project demo-sabeel-example --only firestore,auth,functions,storage JAVA_HOME=${env.SABEEL_JDK21_HOME} FUNCTIONS_DISCOVERY_TIMEOUT=120`,
     ]);
   });
 

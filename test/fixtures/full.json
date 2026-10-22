@@ -21,7 +21,6 @@
   },
   "emulators": {
     "base": 61900,
-    "project": "demo-example",
     "extras": {
       "store": 20,
       "storeAdmin": 21
@@ -34,7 +33,6 @@
     "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
   },
   "native": {
-    "seed": "scripts/seed-native.mjs",
     "seedWeb": true,
     "reversePorts": [
       "store"

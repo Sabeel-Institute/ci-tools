@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { config } from '../lib/config.mjs';
+import { emulatorProject } from '../lib/ports.mjs';
 import { emulatorEnv, freePorts, main, run, startable } from './lib/firebase-emulators.mjs';
 
 /**
@@ -45,7 +46,9 @@ function gradle() {
 }
 
 await main(async () => {
-  const { project, functionsWrapper = [] } = config().emulators;
+  const settings = config();
+  const project = emulatorProject(settings);
+  const { functionsWrapper = [] } = settings.emulators;
   const all = startable();
   const env = emulatorEnv();
   gradle();
