@@ -74,4 +74,8 @@ describe('the native flows', () => {
     expect(runner).toContain("grep -q 'MountingCoordinator::pullTransaction' \"$LOGS/logcat.txt\"");
     expect(runner).toContain("grep -q 'DeviceUnreachableException' \"$OUT/report.xml\"");
   });
+
+  it("keep the Firebase CLI's own logs, which say why a function failed to load", () => {
+    expect(runner).toMatch(/for log in firebase-debug\.log firestore-debug\.log; do\n\s+\[ ! -f "\$log" \] \|\| cp "\$log" "\$LOGS\/"/);
+  });
 });
