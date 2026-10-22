@@ -42,9 +42,9 @@ pids_on_port() {
   else lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u || true; fi
 }
 cwd_of() { readlink "/proc/$1/cwd" 2>/dev/null || lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'; }
-# shellcheck disable=SC2329 # used by cleanup, the EXIT trap
+# shellcheck disable=SC2317,SC2329 # used by cleanup, the EXIT trap
 pid_tree() { local child; for child in $(pgrep -P "$1" 2>/dev/null); do pid_tree "$child"; done; echo "$1"; }
-# shellcheck disable=SC2329 # used by cleanup, the EXIT trap
+# shellcheck disable=SC2317,SC2329 # used by cleanup, the EXIT trap
 stop_tree() { # stop_tree <pid>: TERM the pid and everything under it, then KILL what is left
   local pids
   pids=$(pid_tree "$1")
@@ -92,7 +92,7 @@ else
   echo "Installed $APP_ID on simulator $DEVICE"
 fi
 
-# shellcheck disable=SC2329 # invoked by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 cleanup() {
   local rc=$? pid
   trap - EXIT INT TERM HUP
