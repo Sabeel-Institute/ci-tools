@@ -1,1 +1,9 @@
-{ "name": "example" }
+{
+  "name": "example",
+  "emulators": {
+    "base": 61900,
+    "project": "demo-example",
+    "extras": { "store": 20, "storeAdmin": 21 },
+    "functionsWrapper": ["with-store"]
+  }
+}
