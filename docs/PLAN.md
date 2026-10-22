@@ -66,8 +66,9 @@ passing.
   written with the version bump; one for the current version.
 - **The version, written once.** `app/app.json`'s `expo.version`;
   `build.gradle` derives `versionCode computedVersionCode` and `versionName
-  expoVersion`; app.json states no `android.versionCode`; `ios.buildNumber`
-  is the versionCode, as a string.
+  expoVersion`, and refuses a code above Play's 2100000000 (major at most
+  2100, minor and patch at most 999); app.json states no
+  `android.versionCode`; `ios.buildNumber` is the versionCode, as a string.
 - **Releases.** `sabeel-ci release X.Y.Z --notes <entry>` opens the release
   pull request; `--ship` on main after the owner merges it. TestFlight takes
   only the iOS workflow's build of the commit tagged `v<version>` (`gh workflow
@@ -121,6 +122,7 @@ passing.
   "build": { "sentryDsnVariable": "EXPO_PUBLIC_SENTRY_DSN_ANDROID" },
   "ios": { "backgroundPlayback": true },
   "emulators": { "base": 61300, "project": "demo-sabeel-recordings", "extras": { "master": 20, "masterGrpc": 21, "volume": 22, "volumeGrpc": 23, "filer": 24, "filerGrpc": 25, "s3Grpc": 26, "s3": 27 }, "functionsWrapper": ["node", "scripts/with-media-store.mjs"] },
+  "native": { "seed": "scripts/seed-emulator-world.mjs", "seedWeb": true, "reversePorts": ["s3"] },
   "release": { "appSigningCertificate": "E8:C3:7E:B6:5E:BA:D0:C9:DF:57:D4:58:68:58:D4:59:F9:7F:A4:7E:FB:5D:28:D3:06:0A:79:E9:11:00:FF:D5" }
 }
 ```
