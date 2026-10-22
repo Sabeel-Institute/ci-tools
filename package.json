@@ -19,7 +19,7 @@
   "scripts": {
     "test": "vitest run",
     "lint:shell": "shellcheck scripts/*.sh",
-    "lint:workflows": "rm -rf .rendered && node scripts/workflows.mjs --to .rendered && actionlint -color .github/workflows/*.yml .rendered/*.yml"
+    "lint:workflows": "rm -rf .rendered && node scripts/workflows.mjs --to .rendered/full --config test/fixtures/full.json && node scripts/workflows.mjs --to .rendered/minimal --config test/fixtures/minimal.json && actionlint -color .github/workflows/*.yml .rendered/*/*.yml"
   },
   "dependencies": {
     "pixelmatch": "^8.0.0",

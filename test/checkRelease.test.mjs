@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildLabel, crashLines, devRowShown, labelProblem, screenTexts } from '../scripts/check-release.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
-const workflow = renderAll().get('android.yml');
+const workflow = renderAll(full).get('android.yml');
 const sha = 'f66ae31c8d1fb8099fa9e351cc925dca631ace2d';
 
 describe('the release build check', () => {

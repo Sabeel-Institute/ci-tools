@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { androidIdentity, assertManifest, checkPlayAccess } from '../scripts/ci-play.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
 const root = resolve(import.meta.dirname, '..');
 const script = join(root, 'scripts/ci-play.mjs');
@@ -169,7 +170,7 @@ describe('manual Play artifact releases', () => {
 
 
   it('keeps the workflow manual, main-only, isolated and rebuild-free', () => {
-    const workflow = renderAll().get('android-publish.yml');
+    const workflow = renderAll(full).get('android-publish.yml');
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).not.toMatch(/^ {2}(push|pull_request|workflow_run):/m);
     expect(workflow).toContain('default: false');

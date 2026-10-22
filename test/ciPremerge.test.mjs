@@ -6,9 +6,10 @@ import { join } from 'node:path';
 import { appScheme, backendEndpoints, firebaseFixtures, podVersions } from '../scripts/ci-premerge.mjs';
 import { compatibleVersion, sdkProblems } from '../scripts/lib/ci-sdk.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
 const read = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
-const premerge = renderAll().get('premerge.yml');
+const premerge = renderAll(full).get('premerge.yml');
 
 describe('pre-merge SDK compatibility', () => {
   it.each([

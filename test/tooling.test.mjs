@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
 import { problems } from '../scripts/check-app.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
 const fixtures = [];
@@ -23,12 +24,12 @@ function app() {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
-  put('ci-tools.json', { name: 'example' });
+  put('ci-tools.json', full);
   put('.gitignore', '.env.local\napp/android/keystore.properties\n');
   put('app/app.json', { expo: { android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
   put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
-  for (const [name, text] of renderAll()) put(`.github/workflows/${name}`, text);
+  for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
   execFileSync('git', ['init', '--quiet'], { cwd: root });
   return { root, put };
 }
@@ -86,15 +87,24 @@ describe('the shared workflows', () => {
       .toBe('steps:\n  - run: a\n    if: b\n  - run: x\n');
   });
 
+  it('include a partial when a setting is on, or off, and fill in values', () => {
+    const partial = (name) => ({ media: '- run: media\n', plain: '- run: {{ci-tools.name}}\n' })[name];
+    const template = 'steps:\n  # ci-tools: media if name\n  # ci-tools: plain if !name\n  - run: echo {{ci-tools.name}}\n';
+    expect(expand(template, partial, { name: 'lms' })).toBe('steps:\n  - run: media\n  - run: echo lms\n');
+    expect(() => expand('# ci-tools: media if nmae\n', partial, { name: 'lms' })).toThrow(/does not declare/);
+    expect(() => expand('{{ci-tools.nmae}}', partial, { name: 'lms' })).toThrow(/does not declare/);
+    expect(() => expand('{{ci-tools.name}}', partial, {})).toThrow(/does not set/);
+  });
+
   it('name where they come from, and leave no directive unexpanded', () => {
-    for (const [name, text] of renderAll()) {
+    for (const [name, text] of renderAll(full)) {
       expect(text.startsWith(`# Rendered from Sabeel-Institute/ci-tools workflows/${name} by\n`)).toBe(true);
       expect(text).not.toMatch(/# ci-tools:/);
     }
   });
 
   it('fetch ci-tools before any job runs it, at the pinned commit and only from main', () => {
-    for (const [name, text] of renderAll()) {
+    for (const [name, text] of renderAll(full)) {
       for (const job of text.split(/\n(?= {2}[a-z0-9-]+:\n)/).slice(1)) {
         if (!job.includes('sabeel-ci ')) continue;
         const fetch = job.indexOf('ci-tools, at the commit package-lock.json pins');
@@ -102,7 +112,7 @@ describe('the shared workflows', () => {
         expect(fetch).toBeLessThan(job.indexOf('sabeel-ci '));
       }
     }
-    const step = renderAll().get('android.yml');
+    const step = renderAll(full).get('android.yml');
     expect(step).toContain('merge-base --is-ancestor "$sha" origin/main');
     expect(step).toContain('--ignore-scripts');
   });

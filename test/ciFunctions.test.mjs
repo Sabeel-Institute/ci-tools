@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { callableAnswered, deletions, deployErrors, probeHealthy, sourceEndpoints } from '../scripts/ci-functions.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
-const workflow = renderAll().get('functions-deploy.yml');
+const workflow = renderAll(full).get('functions-deploy.yml');
 
 describe('functions deploy guards', () => {
   it('reads each function and its trigger from the bundle', () => {

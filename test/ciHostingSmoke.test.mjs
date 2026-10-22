@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { treeHashes } from '../scripts/ci-platform.mjs';
 import { hostingChecks, smokePlan, verifyHosting } from '../scripts/ci-hosting-smoke.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
 const directories = [];
 afterEach(() => {
@@ -88,7 +89,7 @@ describe('read-only post-deployment verification', () => {
 });
 
 describe('the web deploy workflow', () => {
-  const deploy = renderAll().get('web-deploy.yml');
+  const deploy = renderAll(full).get('web-deploy.yml');
   it('keeps releases manual and live smoke checks after publishing only', () => {
     expect(deploy).not.toMatch(/^ {2}(push|pull_request|schedule):/m);
     expect(deploy).toContain('workflow_dispatch:');

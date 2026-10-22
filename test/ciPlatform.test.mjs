@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { environmentValues, hostingConfig, treeHashes } from '../scripts/ci-platform.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
+import full from './fixtures/full.json' with { type: 'json' };
 
 const script = resolve(import.meta.dirname, '../scripts/ci-platform.mjs');
 const commit = 'a'.repeat(40);
@@ -140,7 +141,7 @@ describe('platform build and deployment safety', () => {
   });
 
   it('keeps publication manual and platform builds automatic', () => {
-    const workflows = renderAll();
+    const workflows = renderAll(full);
     const workflow = (name) => workflows.get(name);
     const deploy = workflow('web-deploy.yml');
     expect(deploy).toContain('workflow_dispatch:');
