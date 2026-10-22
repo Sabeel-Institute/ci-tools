@@ -334,6 +334,9 @@ export const KEY_FILES = {
   'app/android/app/release.keystore': '*.keystore',
   'play-service-account.json': '*service-account*.json',
   'example-project-firebase-adminsdk-abc12-0123456789.json': '*firebase-adminsdk*.json',
+  // Sentry's Android tooling reads a token from it; a copy left in a checkout
+  // would otherwise go in with the next `git add -A`.
+  'app/android/sentry.properties': 'sentry.properties',
 };
 
 export function problems(root = '.') {

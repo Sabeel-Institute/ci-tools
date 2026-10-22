@@ -81,7 +81,7 @@ function app() {
     writeFileSync(join(root, path), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   };
   put('ci-tools.json', full);
-  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n*.jks\n*.keystore\n*service-account*.json\n*firebase-adminsdk*.json\n');
+  put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n*.jks\n*.keystore\n*service-account*.json\n*firebase-adminsdk*.json\nsentry.properties\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
   put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n  }\n}\n");
@@ -300,6 +300,7 @@ describe('check-app', () => {
       expect.stringMatching(/does not cover \*\.keystore \(app\/android\/app\/release\.keystore, say\)/),
       expect.stringMatching(/does not cover \*service-account\*\.json/),
       expect.stringMatching(/does not cover \*firebase-adminsdk\*\.json/),
+      expect.stringMatching(/does not cover sentry\.properties \(app\/android\/sentry\.properties, say\)/),
       expect.stringMatching(/does not cover app\/src\/build-info\.ts, which every build writes/),
       expect.stringMatching(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/),
       expect.stringMatching(/identifier/),

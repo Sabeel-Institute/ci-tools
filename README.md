@@ -144,8 +144,9 @@ Its Android build, held by `check-app`:
   `packages/shared/src`, the default: `<meta-data
   android:name="com.google.firebase.messaging.default_notification_channel_id"
   android:value="…"/>`.
-- `.gitignore` covers `*.jks`, `*.keystore`, `*service-account*.json` and
-  `*firebase-adminsdk*.json` (keep `!app/android/app/debug.keystore`).
+- `.gitignore` covers `*.jks`, `*.keystore`, `*service-account*.json`,
+  `*firebase-adminsdk*.json` and `sentry.properties` (keep
+  `!app/android/app/debug.keystore`).
 
 Its Hosting site, LMS's shape, held by `check-app`: one site in
 `firebase.json`; `X-Frame-Options: DENY`, `Content-Security-Policy:
