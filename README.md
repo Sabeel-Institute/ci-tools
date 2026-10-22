@@ -26,9 +26,9 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
+| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, signing secrets read only inside the `release-build` environment and every release checking its owner first (in the app's own workflows too), identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
-| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
+| `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `prepare-ios`, `asc-key`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
@@ -38,6 +38,9 @@ root, the directory holding `ci-tools.json`.
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
+| `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, Sentry DSN, privacy manifest |
+| `build-ios [--check]` | On a Mac: every gate, then archive and export a signed App Store `.ipa` to `build/ios/export`; never uploads. `--check` runs the gates and builds nothing |
+| `testflight-check <bundle-id> <version> <build> <commit>` | Before a TestFlight upload: the commit is the one tagged `v<version>` on GitHub, and App Store Connect has not taken the build number |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
 
 ## Changing ci-tools

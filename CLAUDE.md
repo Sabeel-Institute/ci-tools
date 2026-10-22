@@ -22,9 +22,9 @@ fine.
   `check-release` boots a local AVD with the app's `scripts/emulator.sh`.
 - **Scripts that run before `npm ci` use Node built-ins only:** `ci-platform`,
   `ci-play`, `ci-hosting-smoke`, `ci-functions require-ci`, `ci-premerge
-  prepare`, `check-release`, the shell scripts. The release jobs never install
-  the app's dependencies before verifying provenance, and the device check
-  never installs them at all.
+  prepare`, `check-release`, `testflight-check`, the shell scripts. The
+  release jobs never install the app's dependencies before verifying
+  provenance, and the device check never installs them at all.
 - **The fetch step (`workflows/partials/ci-tools.yml`) is a security boundary.**
   It takes the commit from the app's lockfile, refuses one that is not on this
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch
@@ -32,6 +32,9 @@ fine.
   from main's pin.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
+- **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
+  and `ci-sdk.mjs` are imported.
 
 ## Tests
 
