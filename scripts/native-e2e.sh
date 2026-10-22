@@ -99,6 +99,11 @@ cleanup() {
   for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}"; do
     [ -z "$pid" ] || stop_tree "$pid"
   done
+  # The Firebase CLI's own logs: why a function failed to load, which its
+  # console line does not say.
+  for log in firebase-debug.log firestore-debug.log; do
+    [ ! -f "$log" ] || cp "$log" "$LOGS/"
+  done
   bash "$CI_TOOLS/scripts/free-emulator-ports.sh" >/dev/null 2>&1 || true
   exit "$rc"
 }
