@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- The Health workflow calls every callable every half hour (``ci-functions
+  health``, no credentials) and fails when one does not answer for itself.
+  On 2026-10-22 Google's automatic base-image update moved every function of
+  all three apps onto a Node 22 runtime release (22.23.4, the eMudhra
+  certificate fix) that did not start; every call answered 500 from about
+  21:00 to 22:35 UTC, and the first to notice was a person who could not
+  sign in.
 - ``sync-functions-lock`` brings ``functions/package-lock.json`` in step
   with ``functions/package.json``, updated in place with each direct
   dependency at the root lock's version; ``check-app`` names it when the two

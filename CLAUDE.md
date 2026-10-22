@@ -40,6 +40,10 @@ fine.
 - **The version is written once, in `app/app.json`.** Android's versionCode
   and the iOS build number follow from it (`lib/version.mjs`); nothing else
   states one, and `check-app` refuses an app where something does.
+- **Production is checked between deploys.** Google updates a running
+  function's runtime with no deploy of ours, so the Health workflow calls
+  every callable every half hour (`ci-functions health`) and a failed run is
+  emailed. It reads nothing private and changes nothing.
 - **Releases go through pull requests.** `release` pushes only
   `release/v<version>` and opens its pull request; the owner merges it, and
   `release --ship`, run by the owner, creates the tag with the GitHub release.
