@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { buildLabel, crashLines, devRowShown, labelProblem, screenTexts } from '../scripts/check-release.mjs';
+import { afterEach, describe, expect, it } from 'vitest';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { bootAvd, buildLabel, crashLines, devRowShown, labelProblem, screenTexts } from '../scripts/check-release.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -51,6 +54,62 @@ describe('the release build check', () => {
     const xml = '<hierarchy><node text="Sign in with Google" content-desc="" /><node text="" content-desc="Privacy policy" />'
       + '<node text="Arabic I &amp; Qur&#10;anic" /><node text="a literal &amp;lt;" /></hierarchy>';
     expect(screenTexts(xml)).toEqual(['Sign in with Google', 'Privacy policy', 'Arabic I & Qur\nanic', 'a literal &lt;']);
+  });
+});
+
+describe('booting the AVD when no device is attached', () => {
+  const saved = { PATH: process.env.PATH, CI_TOOLS: process.env.CI_TOOLS };
+  const made = [];
+  afterEach(() => {
+    for (const directory of made.splice(0)) {
+      const pidfile = join(directory, 'emulator.pid');
+      if (existsSync(pidfile)) {
+        try {
+          process.kill(Number(readFileSync(pidfile, 'utf8')), 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+      rmSync(directory, { recursive: true, force: true });
+    }
+    process.env.PATH = saved.PATH;
+    if (saved.CI_TOOLS === undefined) delete process.env.CI_TOOLS;
+    else process.env.CI_TOOLS = saved.CI_TOOLS;
+  });
+
+  /** CI_TOOLS whose `emulator.sh headless` runs `body`; an adb that lists a device once `attached` exists. */
+  function fakes(body) {
+    const directory = mkdtempSync(join(tmpdir(), 'ci-tools-boot-'));
+    made.push(directory);
+    const attached = join(directory, 'attached');
+    mkdirSync(join(directory, 'scripts'));
+    writeFileSync(join(directory, 'scripts', 'emulator.sh'), `echo $$ >"${join(directory, 'emulator.pid')}"\n${body.replaceAll('ATTACHED', attached)}\n`);
+    writeFileSync(join(directory, 'adb'), `#!/bin/sh\necho "List of devices attached"\n[ -f "${attached}" ] && printf 'emulator-5554\\tdevice\\n'\nexit 0\n`);
+    chmodSync(join(directory, 'adb'), 0o755);
+    process.env.CI_TOOLS = directory;
+    process.env.PATH = `${directory}:${saved.PATH}`;
+    return join(directory, 'emulator.log');
+  }
+
+  it('boots it with sabeel-ci emulator headless and returns once adb sees it', async () => {
+    const log = fakes('echo "booting $*"; : >ATTACHED; exec sleep 30');
+    await bootAvd(log, { timeout: 5000, poll: 50 });
+    expect(readFileSync(log, 'utf8')).toBe('booting headless\n');
+  });
+
+  it('fails at once, with its words, when the emulator command exits', async () => {
+    const log = fakes('echo "tb_emu is already running: pid 4242" >&2; exit 1');
+    await expect(bootAvd(log, { timeout: 5000, poll: 50 })).rejects.toThrow(/emulator headless exited \(1\) before a device attached:\n {4}tb_emu is already running: pid 4242/);
+  });
+
+  it('gives up after its timeout rather than waiting for ever', async () => {
+    const log = fakes('exec sleep 30');
+    await expect(bootAvd(log, { timeout: 300, poll: 50 })).rejects.toThrow(/No device attached 0\.005 minutes after booting the AVD; see .*emulator\.log/);
+  });
+
+  it('runs only through sabeel-ci, which names the package', async () => {
+    delete process.env.CI_TOOLS;
+    await expect(bootAvd('/dev/null')).rejects.toThrow(/CI_TOOLS is not set/);
   });
 });
 

@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,8 @@ import { fileURLToPath } from 'node:url';
  * ANR for the app. Screens and logs land in --out; the result in result.json.
  *
  * Uses the one attached device. With none attached, outside CI, it boots this
- * machine's AVD with scripts/emulator.sh; in CI the workflow boots one first.
+ * machine's AVD with `sabeel-ci emulator headless`; in CI the workflow boots one
+ * first.
  */
 
 const BUNDLETOOL = { version: '1.18.3', sha256: 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29' };
@@ -103,16 +104,44 @@ function universalApk(aab, out) {
   return apk;
 }
 
-async function device() {
-  const attached = () => adb('devices').split('\n').slice(1).filter((line) => /\tdevice$/.test(line));
-  let devices = attached();
-  if (!devices.length) {
-    if (process.env.CI) throw new Error('No Android device attached; the workflow boots one first');
-    console.log('No device attached: booting the AVD with scripts/emulator.sh headless');
-    spawn('bash', ['scripts/emulator.sh', 'headless'], { detached: true, stdio: 'ignore' }).unref();
-    adb('wait-for-device');
-    devices = attached();
+const attached = () => adb('devices').split('\n').slice(1).filter((line) => /\tdevice$/.test(line));
+
+/**
+ * Boot this machine's AVD with `sabeel-ci emulator headless`, its output in
+ * `log`, and wait for adb to see it. Bounded, and failing the moment the
+ * emulator command exits: `adb wait-for-device` waits forever for one that
+ * has already gone, as it does when it refuses to boot the shared AVD a second
+ * time or finds no SDK. The emulator outlives this check.
+ */
+export async function bootAvd(log, { timeout = 600_000, poll = 3000 } = {}) {
+  const tools = process.env.CI_TOOLS;
+  if (!tools) throw new Error('CI_TOOLS is not set: run this through sabeel-ci');
+  console.log(`No device attached: booting the AVD with sabeel-ci emulator headless (log: ${log})`);
+  const fd = openSync(log, 'w');
+  const child = spawn('bash', [join(tools, 'scripts', 'emulator.sh'), 'headless'], { detached: true, stdio: ['ignore', fd, fd] });
+  closeSync(fd);
+  let exited = null;
+  child.on('exit', (code, signal) => {
+    exited = code ?? signal;
+  });
+  child.unref();
+  const end = Date.now() + timeout;
+  while (!attached().length) {
+    if (exited !== null) {
+      const lines = readFileSync(log, 'utf8').trimEnd().split('\n').slice(-20).join('\n    ');
+      throw new Error(`sabeel-ci emulator headless exited (${exited}) before a device attached:\n    ${lines}`);
+    }
+    if (Date.now() > end) throw new Error(`No device attached ${timeout / 60_000} minutes after booting the AVD; see ${log}`);
+    await sleep(poll);
   }
+}
+
+async function device(out) {
+  if (!attached().length) {
+    if (process.env.CI) throw new Error('No Android device attached; the workflow boots one first');
+    await bootAvd(join(out, 'emulator.log'));
+  }
+  const devices = attached();
   if (devices.length !== 1) throw new Error(`Expected one device, found ${devices.length}: detach the others`);
   for (let i = 0; i < 120 && adb('shell', 'getprop', 'sys.boot_completed').trim() !== '1'; i += 1) await sleep(3000);
   for (const setting of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) {
@@ -174,7 +203,7 @@ async function main() {
   mkdirSync(out, { recursive: true });
 
   const apk = artifact.endsWith('.aab') ? universalApk(resolve(artifact), out) : resolve(artifact);
-  await device();
+  await device(out);
   try {
     adb('uninstall', pkg);
   } catch {
