@@ -26,7 +26,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest |
+| `check-app` | The app meets what these tools assume: `ci-tools.json`, the rendered workflows, `.gitignore` covering the files CI writes from secrets, identifiers the premerge fixtures accept, `functions/package-lock.json` in step with its manifest, the emulator ports in `firebase.json` and `app/src/env.ts` and the emulator project in `packages/shared` in step with `ci-tools.json`, no port of the block and no other emulator project stated in `scripts/` or `package.json` |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 | `ci-platform <task>` | Signed release builds and their provenance: `prepare-android`, `prepare-web`, `android`, `web`, `resolve-build`, `resolve-android-build`, `deploy-config`, `validate-auth` |
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing |
@@ -35,10 +35,48 @@ root, the directory holding `ci-tools.json`.
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `android`, `ios` |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
+| `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
+| `emulators` | The app's Firebase emulators, left running: ports freed, functions built, inside `emulators.functionsWrapper` |
+| `test-emulator` | The functions workspace's emulator suites: `test:emulator:rules` without the Functions emulator, then `test:emulator:functions` with it |
+| `free-emulator-ports` | Stop this checkout's leftovers on the app's emulator ports, and the functions runtimes they orphaned |
+| `ports [<name>\|--suite]` | The app's ports, one of them, or those an emulator run binds |
+| `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
+
+## Emulator ports
+
+Each app owns a block of 100 ports from `emulators.base` in its
+`ci-tools.json` (Time Tracker 61000, Kanban 61200, LMS 61300; 61100 is the
+legacy recording app's), and every service sits at the same offset in every
+block. `lib/ports.mjs` computes them: `sabeel-ci ports <name>` in shell,
+`ports(config(root))` in Node. `check-app` holds `firebase.json` and
+`app/src/env.ts`, which cannot read them, in step.
+
+| Offset | Name | Offset | Name |
+|---|---|---|---|
+| +0 | `firestore` | +7 | `storage` |
+| +1 | `firestoreWebsocket` | +8 | `tasks` (Cloud Tasks) |
+| +2 | `auth` | +9 | `eventarc` |
+| +3 | `functions` | +10 | `web`: the Expo web dev server |
+| +4 | `ui` (the Emulator UI) | +11 | `sweep`: a second one, for the screens sweep |
+| +5 | `hub` | +12 | `proxy`: a throttling proxy for a device pass |
+| +6 | `logging` | +20 to +99 | `emulators.extras`: the app's own, by name |
+
+```json
+"emulators": {
+  "base": 61300,
+  "project": "demo-sabeel-recordings",
+  "extras": { "master": 20, "s3": 27 },
+  "functionsWrapper": ["node", "scripts/with-media-store.mjs"]
+}
+```
+
+`project` is the emulators' demo project. `functionsWrapper` is a command
+every run with the Functions emulator goes through, taking the run as its
+arguments: LMS starts its media store around it.
 
 ## Changing ci-tools
 

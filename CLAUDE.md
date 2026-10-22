@@ -17,9 +17,13 @@ fine.
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
   that differs only by accident changes instead (`docs/PLAN.md`, stage 3).
-  Two holdovers remain until then: `ci-platform` probes for an app's
-  `gen-build-info`, `build-aab` and `check-web-push` scripts, and
-  `check-release` boots a local AVD with the app's `scripts/emulator.sh`.
+  One holdover remains until then: `ci-platform` probes for an app's
+  `gen-build-info`, `build-aab` and `check-web-push` scripts.
+- **Ports come from `lib/ports.mjs` and the app's `emulators.base`.** No
+  script here states an app's port. `free-emulator-ports` reaches no further
+  than the app's suite ports and stops only processes working inside the
+  checkout: the apps share one machine, and a wider sweep killed a sibling's
+  emulator.
 - **Scripts that run before `npm ci` use Node built-ins only:** `ci-platform`,
   `ci-play`, `ci-hosting-smoke`, `ci-functions require-ci`, `ci-premerge
   prepare`, `check-release`, the shell scripts. The release jobs never install
