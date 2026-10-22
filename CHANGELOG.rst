@@ -14,6 +14,16 @@ Unreleased
 - ``build-web --source-maps`` requires the debug ids itself (each script
   hands its id to the Sentry SDK and matches its map), so a local build shows
   what ``ci-platform web`` refuses.
+- ``check-app`` also requires Hosting's ``predeploy`` to be ``npm run
+  web:export -w @sabeel/app`` alone; finds another emulator project named
+  anywhere in ``scripts/``, the ``package.json`` files, ``firebase.json``,
+  ``.firebaserc`` or ``functions/.env*``, not only after ``--project``; and
+  requires the web push key committed as ``VAPID_PUBLIC_KEY`` in
+  ``app/src/firebase-config.ts``, a P-256 public key. A ``sentry.gradle`` gate
+  above ``def projectRoot``, or with none, is named as such by ``check-app``
+  and ``build-aab``: Gradle stops on the unknown property.
+- ``check-web-push`` sends people to ``VAPID_PUBLIC_KEY`` in
+  ``app/src/firebase-config.ts``, where every app commits the public key.
 - ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
   place of the three diverged ``docs/render-manual.py`` copies, and
   ``release`` runs it. It keeps the best of them: the version from

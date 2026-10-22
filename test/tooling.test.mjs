@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
-import { hostingProblems, portProblems, problems, pushChannelProblems } from '../scripts/check-app.mjs';
+import { hostingProblems, portProblems, problems, pushChannelProblems, vapidKeyProblems } from '../scripts/check-app.mjs';
+import { SDK_DEFAULT } from '../scripts/check-web-push.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
 import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
-import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
+import { PROJECT_ROOT, SENTRY_GRADLE } from './fixtures/gradle.mjs';
+import { vapidKey } from './fixtures/push.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
@@ -23,12 +25,13 @@ const RELEASE_KEY = `gradle.taskGraph.whenReady { graph ->
 }
 `;
 /** How build.gradle finds the release key, the one variable ci-platform sets, stops without one, and applies Sentry's upload. */
-const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
+const SIGNING = PROJECT_ROOT + "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
   + RELEASE_KEY + SENTRY_GRADLE;
 const METRO = "const { getSentryExpoConfig } = require('@sentry/react-native/metro');\nmodule.exports = getSentryExpoConfig(__dirname);\n";
 /** LMS's Hosting site, the one shape. */
 const HOSTING = {
   public: 'app/dist-web',
+  predeploy: ['npm run web:export -w @sabeel/app'],
   rewrites: [{ source: '/privacy', destination: '/privacy.html' }, { source: '!/_expo/**', destination: '/index.html' }],
   headers: [
     { source: '**', headers: [{ key: 'Cache-Control', value: 'no-cache, must-revalidate' }] },
@@ -87,6 +90,7 @@ function app() {
   put('app/metro.config.js', METRO);
   put('app/src/sentry.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_NATIVE;\n');
   put('app/src/sentry.web.ts', 'const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN_WEB;\n');
+  put('app/src/firebase-config.ts', `export const firebaseConfig = { apiKey: 'example' };\nexport const VAPID_PUBLIC_KEY =\n  '${vapidKey()}';\n`);
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
@@ -324,6 +328,20 @@ describe('check-app', () => {
     expect(problems(root)).toEqual([]);
   });
 
+  it('says so when the Sentry gate reads $projectRoot before build.gradle defines it, or where it never does', () => {
+    const { root, put } = app();
+    const versions = '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    const fix = `Gradle stops with "Could not get unknown property 'projectRoot'".\n    Put the gate below Expo's\n        ${PROJECT_ROOT.trim()}`;
+    put('app/android/app/build.gradle', SENTRY_GRADLE + '\n' + SIGNING.replace(SENTRY_GRADLE, '') + versions);
+    expect(problems(root)).toEqual([
+      `app/android/app/build.gradle's Sentry gate reads $projectRoot on line 1, but projectRoot is defined only on line 5, after it: ${fix}`,
+    ]);
+    put('app/android/app/build.gradle', SIGNING.replace(PROJECT_ROOT, '') + versions);
+    expect(problems(root)).toEqual([
+      `app/android/app/build.gradle's Sentry gate reads $projectRoot on line 9, but build.gradle never defines projectRoot: ${fix}`,
+    ]);
+  });
+
   it('reports bundles without debug ids, and Sentry DSNs read under other names', () => {
     const { root, put } = app();
     put('app/metro.config.js', "const { getDefaultConfig } = require('expo/metro-config');\nmodule.exports = getDefaultConfig(__dirname);\n");
@@ -379,6 +397,14 @@ describe('check-app', () => {
       'firebase.json hosting does not cache /assets/** as "public, max-age=31536000, immutable": its files are named by their content',
       'firebase.json hosting must rewrite to /index.html from "!/_expo/**" alone, so a missing chunk under /_expo/ is a 404 rather than index.html served as JavaScript (it rewrites from "**")',
     ]);
+    const predeploy = (value) => `firebase.json hosting's predeploy must be "npm run web:export -w @sabeel/app" alone, so a hosting deploy exports `
+      + `through build-web, which refuses an emulator bundle, rather than uploading whatever app/dist-web holds${value}`;
+    expect(hosting((site) => { site.predeploy = 'npm run web:export -w @sabeel/app'; })).toEqual([]);
+    expect(hosting((site) => { delete site.predeploy; })).toEqual([predeploy('')]);
+    expect(hosting((site) => { site.predeploy = ['node scripts/web-release.mjs']; })).toEqual([predeploy(' (it runs ["node scripts/web-release.mjs"])')]);
+    expect(hosting((site) => { site.predeploy.unshift('npm run build'); })).toEqual([
+      predeploy(' (it runs ["npm run build","npm run web:export -w @sabeel/app"])'),
+    ]);
     put('firebase.json', { hosting: [HOSTING], emulators: FIREBASE_EMULATORS });
     expect(hostingProblems(root)).toEqual(['firebase.json must have one Hosting site, an object under "hosting": Deploy Web publishes one']);
     put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
@@ -402,6 +428,29 @@ describe('check-app', () => {
     ]);
     rmSync(join(root, 'packages/shared/src/notify.ts'));
     expect(pushChannelProblems(root)).toEqual(['packages/shared/src must export one PUSH_CHANNEL_ID, the channel the functions send on; it exports 0']);
+  });
+
+  it('holds the web push key the app commits to a P-256 public key', () => {
+    const { root, put } = app();
+    const config = (key) => put('app/src/firebase-config.ts', `export const VAPID_PUBLIC_KEY = ${key};\n`);
+    config(`"${vapidKey()}"`);
+    expect(vapidKeyProblems(root)).toEqual([]);
+    const key = vapidKey();
+    config(`'${key.slice(0, 50)}${key[50] === 'A' ? 'B' : 'A'}${key.slice(51)}'`);
+    expect(vapidKeyProblems(root)).toEqual([
+      "app/src/firebase-config.ts's VAPID_PUBLIC_KEY is not a P-256 public key: truncated, or copied from the wrong field "
+        + "of the project's Web Push certificate (Firebase console, Cloud Messaging). Browsers refuse to subscribe with it",
+    ]);
+    config(`'${SDK_DEFAULT}'`);
+    expect(vapidKeyProblems(root)).toEqual([
+      "app/src/firebase-config.ts's VAPID_PUBLIC_KEY is the Firebase SDK's sample key, not the project's Web Push certificate",
+    ]);
+    const missing = ["app/src/firebase-config.ts does not export VAPID_PUBLIC_KEY = '<key>', the public key of the project's Web Push certificate "
+      + '(Firebase console, Cloud Messaging) that web push subscribes browsers with'];
+    config('process.env.EXPO_PUBLIC_FCM_VAPID_KEY');
+    expect(vapidKeyProblems(root)).toEqual(missing);
+    rmSync(join(root, 'app/src/firebase-config.ts'));
+    expect(problems(root)).toEqual(missing);
   });
 
   it('holds the google-services Gradle plugin at one version', () => {
@@ -491,10 +540,30 @@ describe('check-app', () => {
     put('package.json', { scripts: { 'dev:web': 'expo start --web --port 61910' } });
     expect(portProblems(root)).toEqual([
       'scripts/lib/stack.sh states 61900 (firestore), 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
-      "scripts/lib/stack.sh passes --project demo-sabeel-kanban; this app's emulator project is demo-sabeel-example",
       "scripts/old.mjs names 8080, 9099: Firebase defaults or given-up ports, not this app's",
       "scripts/old.mjs names 61203, outside this app's block 61900-61999: another checkout's",
       'package.json states 61910 (web): read ports from ci-tools instead (`sabeel-ci ports <name>`, ports() in Node)',
+      "scripts/lib/stack.sh names the emulator project demo-sabeel-kanban; this app's is demo-sabeel-example: take it from `sabeel-ci ports --project` (emulatorProject() in Node)",
+    ]);
+  });
+
+  it('finds another emulator project named anywhere in the scripts, the npm scripts, Firebase\'s config or the functions\' parameters', () => {
+    const { root, put } = app();
+    const named = (file, ids) => `${file} names the emulator project ${ids}; this app's is demo-sabeel-example: take it from \`sabeel-ci ports --project\` (emulatorProject() in Node)`;
+    // The app's own project, templates of the name and the docs' history pass.
+    put('scripts/lib/emulators.mjs', "/** The emulators' project, demo-sabeel-<name>. */\nconst project = `demo-sabeel-${name}`;\nconst env = 'functions/.env.demo-sabeel-example';\n");
+    put('docs/PHASE_STATUS.md', '### 2026-10-21 — Renamed demo-sabeel-recordings to demo-sabeel-example — v0.2.1\n');
+    expect(portProblems(root)).toEqual([]);
+    put('scripts/set-min-version.mjs', ' *   CHECK_PROJECT=demo-sabeel-recordings \\\n *   node scripts/set-min-version.mjs\n');
+    put('scripts/grant-admin.sh', 'firebase auth:export --project=demo-test x.json  # once demo-sabeel, then demo-sabeel-recordings\n');
+    put('app/package.json', { scripts: { seed: 'GCLOUD_PROJECT=demo-sabeel node seed.mjs' } });
+    put('functions/.env.demo-sabeel-example', 'MAILER=report-mailer@demo-sabeel-lms.iam.gserviceaccount.com\n');
+    put('.firebaserc', { projects: { default: 'example-project', emulator: 'demo-sabeel-example' } });
+    expect(portProblems(root)).toEqual([
+      named('scripts/grant-admin.sh', 'demo-sabeel, demo-sabeel-recordings, demo-test'),
+      named('scripts/set-min-version.mjs', 'demo-sabeel-recordings'),
+      named('app/package.json', 'demo-sabeel'),
+      named('functions/.env.demo-sabeel-example', 'demo-sabeel-lms'),
     ]);
   });
 

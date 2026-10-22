@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says; the Hosting site, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, no port stated in `scripts/` or `package.json`, and no other emulator project named there, in `firebase.json`, `.firebaserc` or `functions/.env*`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says; the web push key committed as `VAPID_PUBLIC_KEY` in `app/src/firebase-config.ts`, a P-256 public key; the Hosting site with its predeploy, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -89,7 +89,7 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `check-push [fcm\|apple]` | Against the real project: FCM and both Apple services accept a message from it, and refuse a token that cannot exist with an answer the functions prune on |
-| `check-web-push` | The exported web bundle carries a VAPID public key and the permission path; `ci-platform web` runs it on every web build |
+| `check-web-push` | The exported web bundle carries a VAPID public key (the app's `VAPID_PUBLIC_KEY`) and the permission path; `ci-platform web` runs it on every web release build |
 | `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
 
 ## ci-tools.json
@@ -126,8 +126,9 @@ Its Android build, held by `check-app`:
 - `app/android/app/build.gradle` signs releases with the properties file
   `SABEEL_KEYSTORE_PROPERTIES` names, which `ci-platform` sets in CI, and
   stops a release it cannot sign: without a key AGP creates no
-  `validateSigningRelease` task and packages the release unsigned. A null
-  signing config, the pre-merge build's, passes:
+  `validateSigningRelease` task and packages the release unsigned. The stop
+  goes after the `android { }` block; a null signing config, the pre-merge
+  build's, passes:
 
   ```groovy
   gradle.taskGraph.whenReady { graph ->
@@ -153,7 +154,10 @@ frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and
 source (Firebase's `/__/` pages are framed by sign-in); `/_expo/static/**`
 and `/assets/**` cached `public, max-age=31536000, immutable`; the
 single-page rewrite to `/index.html` from `!/_expo/**` alone, so a missing
-chunk is a 404; and a `default` alias in `.firebaserc`.
+chunk is a 404; `predeploy` `npm run web:export -w @sabeel/app` alone, so a
+local hosting deploy exports again through `build-web` rather than uploading
+whatever an e2e run left in `app/dist-web`; and a `default` alias in
+`.firebaserc`.
 
 ## Sentry
 
@@ -167,7 +171,8 @@ run without what makes a crash readable. Pull-request builds need none of it.
 | The auth token | `SENTRY_AUTH_TOKEN` in `app/.env.sentry-build-plugin`, the build machine's gitignored file (`BUILD_ENV` in CI, with the App Store Connect key ids and the Apple team) |
 
 - **Android**: `build.gradle` applies `sentry.gradle` exactly when
-  `app/.env.sentry-build-plugin` exists:
+  `app/.env.sentry-build-plugin` exists, below Expo's `def projectRoot`,
+  which the gate reads:
 
   ```groovy
   if (file("$projectRoot/.env.sentry-build-plugin").exists()) {

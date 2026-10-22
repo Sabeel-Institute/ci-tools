@@ -8,7 +8,7 @@ import { assertManifest } from '../scripts/ci-play.mjs';
 import { checkPlayAccess } from '../scripts/publish-play.mjs';
 import { androidIdentity } from '../lib/version.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
-import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
+import { PROJECT_ROOT, SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
 const root = resolve(import.meta.dirname, '..');
@@ -16,7 +16,7 @@ const script = join(root, 'scripts/ci-play.mjs');
 const commit = 'c'.repeat(40);
 const certificate = 'ab'.repeat(32);
 const app = { version: '0.2.0', android: { package: 'com.test.app' } };
-const gradle = SENTRY_GRADLE + '        versionCode computedVersionCode\n        versionName expoVersion\n';
+const gradle = PROJECT_ROOT + SENTRY_GRADLE + '        versionCode computedVersionCode\n        versionName expoVersion\n';
 const manifest = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.test.app" android:versionCode="2000" android:versionName="0.2.0"/>';
 const fixtures = [];
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });

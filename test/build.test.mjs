@@ -7,7 +7,7 @@ import { selfTest } from '../scripts/check-version.mjs';
 import { controlByte } from '../scripts/check-text-sources.mjs';
 import { deployNotes } from '../scripts/deploy-notes.mjs';
 import { foreignHolders } from '../scripts/preflight-metro.mjs';
-import { SENTRY_GRADLE } from './fixtures/gradle.mjs';
+import { PROJECT_ROOT, SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import { vapidKey } from './fixtures/push.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -41,7 +41,7 @@ function app({ version = '0.2.0' } = {}) {
   put('ci-tools.json', full);
   put('.gitignore', 'app/src/build-info.ts\napp/.env.local\napp/.env.sentry-build-plugin\napp/dist-web/\napp/android/app/build/\nbin/\ncalls.log\nrunner/\n');
   put('app/app.json', { expo: { version, android: { package: 'com.sabeelinstitute.example' } } });
-  put('app/android/app/build.gradle', SENTRY_GRADLE + 'versionCode computedVersionCode\nversionName expoVersion\n');
+  put('app/android/app/build.gradle', PROJECT_ROOT + SENTRY_GRADLE + 'versionCode computedVersionCode\nversionName expoVersion\n');
   put('app/src/App.tsx', "import { BUILD_INFO } from './build-info';\n");
   put('docs/PHASE_STATUS.md', `# Phase status\n\n## Deploy log\n\n### 2026-10-21 — The fixture release — v${version}\n\nWhat ${version} holds.\n\n### 2026-10-01 — The one before — v0.1.9\n\nOlder.\n`);
   put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_NATIVE=${dsn}\nEXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n`);

@@ -13,25 +13,24 @@ import { fileURLToPath } from 'node:url';
  *
  * A web build without its VAPID public key fails nowhere: the client is inert
  * by design, the build succeeds, the site deploys, and every browser quietly
- * reports that it cannot receive notifications. The source is right either way
- * when the key comes from the build's environment (EXPO_PUBLIC_FCM_VAPID_KEY);
- * the output shows it. So this reads the scripts app/dist-web/index.html loads
- * and requires a VAPID key in them, other than the sample key the Firebase SDK
- * ships, that is a real P-256 public key: 65 bytes, uncompressed, a point on
- * the curve, which a truncated paste, the private half or the sender id are
- * not, and which a browser refuses to subscribe with. With no key the minifier
- * can prove `canRequestPush()` false and fold `enablePush` to a bare
+ * reports that it cannot receive notifications. Every app commits the public
+ * key as VAPID_PUBLIC_KEY in app/src/firebase-config.ts, which `check-app`
+ * holds to a P-256 key, but the source can hold it while the bundle lacks it.
+ * So this reads the scripts app/dist-web/index.html loads and requires a VAPID
+ * key in them, other than the sample key the Firebase SDK ships, that is a
+ * real P-256 public key: 65 bytes, uncompressed, a point on the curve, which a
+ * truncated paste, the private half or the sender id are not, and which a
+ * browser refuses to subscribe with. With no key the minifier can prove
+ * `canRequestPush()` false and fold `enablePush` to a bare
  * `return 'unavailable'`, deleting the permission path; that fold fails too.
  *
  * It reads the artifact on disk, so run it right after the release export and
  * before the deploy. `dist-web` is shared: an e2e or sweep run rebuilds it,
- * normally with no key, and a check at another moment answers about a
- * different bundle. Not part of `web:export` itself: local and e2e builds
- * without a key are normal.
+ * and a check at another moment answers about a different bundle.
  */
 
 /** The Firebase SDK's own sample key; finding only that means ours is absent. */
-const SDK_DEFAULT = 'BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4';
+export const SDK_DEFAULT = 'BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4';
 
 /** Whether `key` (base64url) is an uncompressed P-256 public key: 0x04, then a point on the curve. */
 export function isP256Point(key) {
@@ -67,14 +66,16 @@ export function checkWebPush(site = 'app/dist-web') {
     fail('no VAPID key in the exported bundle.\n'
       + '  Web push will be inert: every browser will report that it cannot receive\n'
       + '  notifications, and nothing else will look wrong.\n'
-      + '  Re-export with the VAPID public key where the app\'s web push reads it\n'
-      + '  (EXPO_PUBLIC_FCM_VAPID_KEY: app/.env.local here, APP_ENV_LOCAL in CI).');
+      + '  The key is VAPID_PUBLIC_KEY in app/src/firebase-config.ts (the public key of\n'
+      + '  the Web Push certificate, Firebase console, Cloud Messaging); check that the\n'
+      + '  app\'s web push module imports it, then export again.');
   }
   if (!keys.some(isP256Point)) {
     fail('the VAPID key in the exported bundle is not a P-256 public key: truncated,\n'
       + '  or copied from the wrong field. Browsers refuse to subscribe with it, so web\n'
       + '  push would register no device. Copy the public key of the Web Push\n'
-      + '  certificate (Firebase console, Cloud Messaging) again.');
+      + '  certificate (Firebase console, Cloud Messaging) into VAPID_PUBLIC_KEY in\n'
+      + '  app/src/firebase-config.ts again.');
   }
   // Unreachable once a key is present; here because it is the symptom people see.
   if (/enablePush=async function\([^)]*\)\{return['"]unavailable['"]/.test(bundle)) {
