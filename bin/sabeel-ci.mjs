@@ -8,7 +8,7 @@
  * ci-tools.json), and CI_TOOLS names this package, so a script reads the app's
  * files by relative path and reaches its siblings through CI_TOOLS.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +41,17 @@ try {
   process.exit(2);
 }
 const [program, file] = existsSync(mjs) ? [process.execPath, mjs] : ['bash', sh];
-const result = spawnSync(program, [file, ...args], { cwd: root, stdio: 'inherit', env: { ...process.env, CI_TOOLS: tools } });
-if (result.error) throw result.error;
-if (result.signal) process.kill(process.pid, result.signal);
-process.exit(result.status ?? 1);
+const child = spawn(program, [file, ...args], { cwd: root, stdio: 'inherit', env: { ...process.env, CI_TOOLS: tools } });
+// A signal sent to this process alone reaches the command as well, so a
+// long-running one (`emulators`) never outlives it.
+const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const forward = (signal) => child.kill(signal);
+for (const signal of SIGNALS) process.on(signal, forward);
+child.on('error', (error) => {
+  throw error;
+});
+child.on('exit', (status, signal) => {
+  for (const name of SIGNALS) process.off(name, forward);
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(status ?? 1);
+});
