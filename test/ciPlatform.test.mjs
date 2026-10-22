@@ -81,11 +81,14 @@ describe('platform build and deployment safety', () => {
       ANDROID_KEYSTORE: Buffer.from('fixture key').toString('base64'),
       ANDROID_KEYSTORE_PROPERTIES: 'storeFile=/old/machine/key.jks\nstorePassword=fake-store\nkeyAlias=upload\nkeyPassword=fake-key\n',
     });
-    const properties = readFileSync(join(test.directory, 'app/android/keystore.properties'), 'utf8');
+    const path = join(test.directory, 'android-keystore.properties');
+    const properties = readFileSync(path, 'utf8');
     expect(properties).not.toContain('/old/machine');
     expect(properties).toContain(`storeFile=${test.directory}/android-signing.keystore`);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(statSync(join(test.directory, 'android-signing.keystore')).mode & 0o777).toBe(0o600);
-    expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toContain('SABEEL_LMS_KEYSTORE_PROPERTIES=');
+    expect(readFileSync(join(test.directory, 'github-env'), 'utf8')).toBe(`SABEEL_KEYSTORE_PROPERTIES=${path}\n`);
+    expect(existsSync(join(test.directory, 'app/android/keystore.properties'))).toBe(false);
   });
 
   it('rejects production builds configured to use Firebase emulators', () => {

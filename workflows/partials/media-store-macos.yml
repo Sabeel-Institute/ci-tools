@@ -1,0 +1,7 @@
+- name: Install SeaweedFS
+  run: |
+    curl -fsSLo "$RUNNER_TEMP/weed.tgz" https://github.com/seaweedfs/seaweedfs/releases/download/4.47/darwin_arm64.tar.gz
+    echo "3ad466db33e83d0b103f90a06997feeb1cc42fd536e6cbdcdded975778f64fda  $RUNNER_TEMP/weed.tgz" | shasum -a 256 -c -
+    mkdir -p "$RUNNER_TEMP/seaweedfs"
+    tar -xzf "$RUNNER_TEMP/weed.tgz" -C "$RUNNER_TEMP/seaweedfs"
+    echo "WEED_BIN=$RUNNER_TEMP/seaweedfs/weed" >> "$GITHUB_ENV"

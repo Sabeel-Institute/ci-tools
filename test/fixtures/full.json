@@ -22,10 +22,22 @@
   "emulators": {
     "base": 61900,
     "project": "demo-example",
-    "extras": { "store": 20, "storeAdmin": 21 },
-    "functionsWrapper": ["with-store"]
+    "extras": {
+      "store": 20,
+      "storeAdmin": 21
+    },
+    "functionsWrapper": [
+      "with-store"
+    ]
   },
   "release": {
     "appSigningCertificate": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"
+  },
+  "native": {
+    "seed": "scripts/seed-native.mjs",
+    "seedWeb": true,
+    "reversePorts": [
+      "store"
+    ]
   }
 }

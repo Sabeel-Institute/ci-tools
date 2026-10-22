@@ -12,6 +12,8 @@ import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const bin = fileURLToPath(new URL('../bin/sabeel-ci.mjs', import.meta.url));
+/** How build.gradle finds the release key: the one variable ci-platform sets. */
+const SIGNING = "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n";
 const fixtures = [];
 
 afterEach(() => {
@@ -52,7 +54,7 @@ function app() {
   put('ci-tools.json', full);
   put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
-  put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+  put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
   put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
@@ -257,6 +259,24 @@ describe('check-app', () => {
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
   });
 
+  it('reports a build.gradle that does not take the release key from SABEEL_KEYSTORE_PROPERTIES', () => {
+    const { root, put } = app();
+    put('app/android/app/build.gradle', SIGNING.replace('SABEEL_KEYSTORE', 'SABEEL_LMS_KEYSTORE') + '        versionCode computedVersionCode\n        versionName expoVersion\n');
+    expect(problems(root)).toEqual([
+      "app/android/app/build.gradle does not read the release key's properties from System.getenv('SABEEL_KEYSTORE_PROPERTIES')",
+      'app/android/app/build.gradle names SABEEL_LMS_KEYSTORE_PROPERTIES; the variable is SABEEL_KEYSTORE_PROPERTIES',
+    ]);
+  });
+
+  it('reports a flow that does not take its app from native-e2e', () => {
+    const { root, put } = app();
+    put('maestro/board.yaml', 'appId: ${APP_ID}\n---\n- launchApp\n');
+    put('maestro/common/back.yaml', 'appId: ${APP_ID}\n---\n- back\n');
+    expect(problems(root)).toEqual([]);
+    put('maestro/old.yaml', 'appId: com.sabeelinstitute.example\n---\n- launchApp\n');
+    expect(problems(root)).toEqual(['maestro/old.yaml does not take its app from native-e2e: it must name it as appId: ${APP_ID}']);
+  });
+
   it('reports a signing secret read outside release-build, in the app\'s own workflows too', () => {
     const { root, put } = app();
     put('.github/workflows/app-only.yml', 'on: push\njobs:\n  test:\n    steps:\n      - run: x\n        env:\n          K: ${{ secrets.ASC_KEY_P8 }}\n');
@@ -316,14 +336,14 @@ describe('check-app', () => {
   it("reports every place the version is written that disagrees with app.json's", () => {
     const { root, put } = app();
     put('app/app.json', { expo: { version: '0.2.2', android: { package: 'com.sabeelinstitute.example', versionCode: 39 }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '6' } } });
-    put('app/android/app/build.gradle', '        versionCode 39\n        versionName "0.2.2"\n');
+    put('app/android/app/build.gradle', SIGNING + '        versionCode 39\n        versionName "0.2.2"\n');
     put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-22 — The next release — v0.2.2\n\n### 2026-10-21 — The example release — v0.2.1\n');
     const found = problems(root);
     expect(found).toHaveLength(3);
     expect(found[0]).toMatch(/build\.gradle must derive the version from app\.json/);
     expect(found[1]).toMatch(/expo\.ios\.buildNumber is "6"; version 0\.2\.2's is "2002"/);
     expect(found[2]).toMatch(/USER-MANUAL\.md says "For app version 0\.2\.1", app\/app\.json 0\.2\.2/);
-    put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
+    put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
     expect(problems(root)[0]).toMatch(/states android\.versionCode 39; remove it/);
     put('app/app.json', { expo: { version: '0.2.2-beta.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } });
     expect(problems(root)).toEqual([expect.stringMatching(/^app\/app\.json's expo\.version: "0\.2\.2-beta\.1" is not three/)]);

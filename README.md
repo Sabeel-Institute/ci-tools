@@ -78,6 +78,7 @@ root, the directory holding `ci-tools.json`.
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
+| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 
@@ -104,11 +105,18 @@ Every key is checked; an unknown or misspelt one fails every command.
 | `build.sentryDsnVariable` | The `app/.env.local` variable carrying the native Sentry DSN; Android and iOS release builds refuse to run without it |
 | `ios.backgroundPlayback` | The app plays with the phone locked: `check-ios-config` requires expo-video's `supportsBackgroundPlayback` |
 | `emulators.base`, `.project`, `.extras`, `.functionsWrapper` | The app's port block, its emulators' demo project, its own extra ports and the command its Functions runs go through ("Emulator ports" below) |
+| `native.seed` | The script that seeds the emulators for the native flows |
+| `native.seedWeb` | The seed drives the web app: a web dev server runs on the app's `web` port for it, its address in `E2E_BASE` |
+| `native.reversePorts` | Ports the app reaches on this machine's `127.0.0.1`, which the Android emulator is given (`adb reverse`) |
 | `release.appSigningCertificate` | The SHA-256 of the certificate Play signs installed APKs with (Play Console, App integrity), as Play Console prints it |
 
 Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
+Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
+to the build it installed. Its `build.gradle` signs releases with the
+properties file `SABEEL_KEYSTORE_PROPERTIES` names, which `ci-platform` sets
+in CI, and fails closed without it.
 
 ## Push from the app's own code
 

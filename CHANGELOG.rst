@@ -79,3 +79,12 @@ Unreleased
   no ``android.versionCode``, and ``expo.ios.buildNumber`` is the versionCode.
   ``check-app`` refuses an app where any of these, or the manual's "For app
   version" line, disagree.
+- ``native-e2e`` and the ``native`` workflow template, merged from the apps'
+  copies: the debug build's id from ``app.json`` and the debug build type's
+  suffix, the emulators through ``sabeel-ci emulators``, the seed and what it
+  needs from ``native`` in ``ci-tools.json``, screenshots in
+  ``shots/native/``. ``check-app`` requires every Maestro flow to take its app
+  as ``appId: ${APP_ID}``.
+- One Android keystore variable: ``ci-platform prepare-android`` sets
+  ``SABEEL_KEYSTORE_PROPERTIES`` alone and writes nothing into the checkout,
+  and ``check-app`` requires ``build.gradle`` to read it.

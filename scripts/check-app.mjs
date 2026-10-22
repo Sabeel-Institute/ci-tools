@@ -188,6 +188,26 @@ export function problems(root = '.') {
     return problem ? [`${problem}\n    The Android release build refuses to run without it.`] : [];
   });
   attempt(() => {
+    // ci-platform hands the release key to Gradle in this variable, and only in it.
+    const gradle = readFileSync(resolve(root, 'app/android/app/build.gradle'), 'utf8');
+    const found = [];
+    if (!gradle.includes("System.getenv('SABEEL_KEYSTORE_PROPERTIES')")) {
+      found.push("app/android/app/build.gradle does not read the release key's properties from System.getenv('SABEEL_KEYSTORE_PROPERTIES')");
+    }
+    const others = [...new Set(gradle.match(/\b(?!SABEEL_KEYSTORE_PROPERTIES\b)\w+_KEYSTORE_PROPERTIES\b/g) ?? [])];
+    if (others.length) found.push(`app/android/app/build.gradle names ${others.join(', ')}; the variable is SABEEL_KEYSTORE_PROPERTIES`);
+    return found;
+  });
+  attempt(() => {
+    // native-e2e tells each flow the id of the build it installed, which
+    // differs between Android's debug build and iOS.
+    const directory = resolve(root, 'maestro');
+    if (!existsSync(directory)) return [];
+    return readdirSync(directory, { recursive: true }).filter((name) => String(name).endsWith('.yaml'))
+      .filter((name) => !readFileSync(join(directory, String(name)), 'utf8').split('\n').includes('appId: ${APP_ID}'))
+      .map((name) => `maestro/${name} does not take its app from native-e2e: it must name it as appId: \${APP_ID}`);
+  });
+  attempt(() => {
     const manifest = resolve(root, 'functions/package.json');
     if (!existsSync(manifest)) return [];
     const { dependencies, devDependencies } = JSON.parse(readFileSync(manifest, 'utf8'));

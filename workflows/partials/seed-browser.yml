@@ -1,0 +1,2 @@
+- name: Install Chromium for the seed
+  run: npx playwright install --with-deps chromium

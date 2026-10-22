@@ -45,7 +45,11 @@ export function labelProblem(label, version, sha) {
   return null;
 }
 
-/** The emulator-only sign-in row, whatever each app calls it ("Dev sign-in", "Emulator sign-in", "Dev (emulator) sign-in"). */
+/**
+ * The emulator-only sign-in row, "Dev sign-in (emulator only)" in every app.
+ * Matched loosely on purpose: a release showing any such row points at the
+ * emulators, whatever it is called.
+ */
 export function devRowShown(texts) {
   return texts.some((text) => /\b(dev|emulator)\b[^\n]{0,24}sign[- ]in/i.test(text));
 }

@@ -54,8 +54,9 @@ function prepare(android) {
     if (!new RegExp(`^\\s*${name}\\s*[=:]\\s*\\S`, 'm').test(normalized)) throw new Error(`Missing signing property ${name}`);
   }
   writePrivate(properties, normalized);
-  writePrivate('app/android/keystore.properties', normalized);
-  appendFileSync(required('GITHUB_ENV'), `SABEEL_TT_KEYSTORE_PROPERTIES=${properties}\nSABEEL_LMS_KEYSTORE_PROPERTIES=${properties}\n`);
+  // Every app's build.gradle signs releases with the properties this names,
+  // and fails closed without them (check-app holds it to that).
+  appendFileSync(required('GITHUB_ENV'), `SABEEL_KEYSTORE_PROPERTIES=${properties}\n`);
   if (process.env.ANDROID_GOOGLE_SERVICES_JSON) {
     const googleServices = JSON.parse(process.env.ANDROID_GOOGLE_SERVICES_JSON);
     const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;

@@ -38,14 +38,8 @@ Functions, pre-merge and iOS workflows; builds and their checks (`build-info`,
 `free-emulator-ports`, `ports`, `jdk21`, `emulator`); `check-app`, which holds
 what the apps' copies of these tests checked of each app.
 
-Left here before the apps migrate:
-
-- the native flows: `native-e2e` and `native.yml` (with the apps'
-  `nativeE2e` test), the seed hook they call, `shots/native/`;
-- one Android keystore variable: `ci-platform prepare-android` still writes
-  both `SABEEL_TT_KEYSTORE_PROPERTIES` and `SABEEL_LMS_KEYSTORE_PROPERTIES`;
-- `check-release` finding the one dev sign-in heading, "Dev sign-in (emulator
-  only)", instead of four spellings.
+Also merged: `native-e2e` and `native.yml`, with the apps' `nativeE2e`
+test; one Android keystore variable, `SABEEL_KEYSTORE_PROPERTIES`.
 
 ## Migrating an app
 
@@ -98,6 +92,19 @@ passing.
   `SABEEL_STOP_GRADLE`.
 - **The dev sign-in row** is headed "Dev sign-in (emulator only)", testID
   `dev-sign-in`.
+- **The native flows.** `native.seed` names the app's seed script (LMS
+  `scripts/seed-emulator-world.mjs`, Kanban `scripts/seed-dev.mjs`, TT
+  `scripts/seed-native.mjs`); LMS and Kanban set `native.seedWeb`; LMS sets
+  `native.reversePorts: ["s3"]`. Every flow names `appId: ${APP_ID}`.
+- **Release signing.** `build.gradle` reads
+  `System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?:
+  "${System.getProperty('user.home')}/.config/<app>/keystore.properties"`
+  and fails closed without it (LMS `sabeel-lms`, TT `sabeel-time-tracker`,
+  Kanban `sabeel-kanban`; Kanban's release build stops falling back to the
+  debug key, and its local `app/android/keystore.properties` moves to
+  `~/.config/sabeel-kanban/`). Local overrides named
+  `SABEEL_LMS_KEYSTORE_PROPERTIES` or `SABEEL_TT_KEYSTORE_PROPERTIES` take
+  the one name.
 
 ### LMS
 
@@ -190,6 +197,3 @@ unused-in-emulator`; `ci.knip` on; `build.sentryDsnVariable`
 - One name for the native Sentry DSN variable in every app, which means
   editing each `APP_ENV_LOCAL` secret and its copy in the vault.
 
-## Assertions waiting for their templates
-
-- `native.yml`, with the apps' `nativeE2e` test.
