@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- ``build-web`` and ``build-aab`` refuse while ``EXPO_PUBLIC_USE_EMULATORS``
+  is set in the shell or in an ``app/.env*`` file, as LMS's
+  ``web-release.mjs`` did before Hosting's predeploy became ``build-web``: a
+  local ``firebase deploy --only hosting`` or ``release --ship`` from a
+  dev-loop terminal would otherwise ship a bundle pointed at the emulators.
+  ``build-web --emulators`` builds for the emulators on purpose and sets the
+  flag itself.
 - ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
   place of the three diverged ``docs/render-manual.py`` copies, and
   ``release`` runs it. It keeps the best of them: the version from

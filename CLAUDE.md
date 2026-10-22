@@ -29,6 +29,10 @@ fine.
   shell scripts. The release jobs never install the app's dependencies before
   verifying provenance; Publish Android and the device check never install
   them at all.
+- **A production build never points at the emulators.** `build-web` and
+  `build-aab` refuse while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or
+  in an `app/.env*` file (`scripts/lib/emulator-flag.mjs`); `build-web
+  --emulators` is the one way to build for them, and sets the flag itself.
 - **The push tools run the app's own sender.** `check-push` and
   `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
   `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
@@ -57,9 +61,10 @@ fine.
   (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
   `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`,
-  `sentry.mjs` and `ci-sdk.mjs` are imported, and `render-manual.py`, the one
-  Python here, is run by `render-manual.sh` with `uv run --script` (its
-  dependencies are pinned inline, PEP 723). Nothing before `npm ci` runs it.
+  `sentry.mjs`, `emulator-flag.mjs` and `ci-sdk.mjs` are imported, and
+  `render-manual.py`, the one Python here, is run by `render-manual.sh` with
+  `uv run --script` (its dependencies are pinned inline, PEP 723). Nothing
+  before `npm ci` runs it.
 
 ## Tests
 

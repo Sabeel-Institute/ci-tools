@@ -36,8 +36,8 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
-| `build-web [--source-maps]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp |
-| `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; `--check` stops before the build |
+| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself |
+| `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; refuses while `EXPO_PUBLIC_USE_EMULATORS` is set, as `build-web` does; `--check` stops before the build |
 | `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |

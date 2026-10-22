@@ -55,7 +55,8 @@ fs.writeFileSync('app/build/outputs/bundle/release/app-release.aab', fs.readFile
 `, 0o755);
   put('bin/npx', `#!/usr/bin/env node
 const fs = require('node:fs');
-fs.appendFileSync('../calls.log', 'npx ' + process.argv.slice(2).join(' ') + '\\n');
+fs.appendFileSync('../calls.log', 'npx ' + process.argv.slice(2).join(' ')
+  + (process.env.EXPO_PUBLIC_USE_EMULATORS ? ' EXPO_PUBLIC_USE_EMULATORS=' + process.env.EXPO_PUBLIC_USE_EMULATORS : '') + '\\n');
 fs.mkdirSync('dist-web/_expo/static/js/web', { recursive: true });
 fs.writeFileSync('dist-web/index.html', '<div id="root"></div><script src="/_expo/static/js/web/entry.js" defer></script>');
 const vapid = process.env.FAKE_NO_VAPID ? '' : ${JSON.stringify(vapidKey())};
@@ -75,9 +76,11 @@ if (process.argv.includes('-certs') && signer) process.stdout.write('- Signed by
   git(root, 'init', '--quiet');
   git(root, 'add', '.');
   git(root, 'commit', '--quiet', '-m', 'fixture');
+  // Whatever the shell running the tests has set, a build here starts without the emulator flag.
+  const { EXPO_PUBLIC_USE_EMULATORS: _, ...shell } = process.env;
   const run = (script, args = [], env = {}) => spawnSync(process.execPath, [join(scripts, `${script}.mjs`), ...args], {
     cwd: root, encoding: 'utf8',
-    env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, RUNNER_TEMP: join(root, 'runner'), ...env },
+    env: { ...shell, PATH: `${join(root, 'bin')}:${process.env.PATH}`, RUNNER_TEMP: join(root, 'runner'), ...env },
   });
   const calls = () => (existsSync(join(root, 'calls.log')) ? readFileSync(join(root, 'calls.log'), 'utf8').trim().split('\n') : []);
   const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -304,7 +307,44 @@ describe('build-web', () => {
       'npx --no-install expo export --platform web --output-dir dist-web --clear',
       'npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps',
     ]);
-    expect(test.run('build-web', ['--maps']).status).toBe(2);
+    for (const args of [['--maps'], ['--source-maps', '--emulators'], ['--emulators', '--emulators']]) {
+      const usage = test.run('build-web', args);
+      expect(usage.status, args.join(' ')).toBe(2);
+      expect(usage.stderr).toBe('usage: sabeel-ci build-web [--source-maps | --emulators]\n');
+    }
+  });
+
+  it('refuses while the shell or a dotenv file in app/ sets the emulator flag, before it stamps or exports', () => {
+    const test = app();
+    const refused = (result, ...sources) => {
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('not exporting the web app:\n'
+        + '  - EXPO_PUBLIC_USE_EMULATORS would point this build at the Firebase emulators, and nothing in it would say so:\n'
+        + sources.join('\n') + '\n    To build for the emulators on purpose: sabeel-ci build-web --emulators');
+    };
+    const shell = '      - set in this shell: unset it, or use a fresh terminal';
+    const file = (name) => `      - set in app/${name}: remove the line (the dev loop passes the flag on its own command line)`;
+    refused(test.run('build-web', [], { EXPO_PUBLIC_USE_EMULATORS: '1' }), shell);
+    test.put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n  EXPO_PUBLIC_USE_EMULATORS = 1\n`);
+    test.put('app/.env.development', 'export EXPO_PUBLIC_USE_EMULATORS="true"\n');
+    refused(test.run('build-web', ['--source-maps'], { EXPO_PUBLIC_USE_EMULATORS: '0' }), shell, file('.env.development'), file('.env.local'));
+    expect(test.calls()).toEqual([]);
+    expect(existsSync(join(test.root, 'app/src/build-info.ts'))).toBe(false);
+    // Unset, empty or commented out, the flag points nowhere.
+    test.put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n# EXPO_PUBLIC_USE_EMULATORS=1\n`);
+    test.put('app/.env.development', 'EXPO_PUBLIC_USE_EMULATORS=\n');
+    expect(test.run('build-web', [], { EXPO_PUBLIC_USE_EMULATORS: '' }).status).toBe(0);
+    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear']);
+  });
+
+  it('builds for the emulators only when asked to, setting the flag itself', () => {
+    const test = app();
+    const asked = test.run('build-web', ['--emulators']);
+    expect(asked.status).toBe(0);
+    expect(asked.stdout).toContain(`app/dist-web: v0.2.0 · ${test.commit()} · for the emulators`);
+    test.put('app/.env.local', 'EXPO_PUBLIC_USE_EMULATORS=1\n');
+    expect(test.run('build-web', ['--emulators'], { EXPO_PUBLIC_USE_EMULATORS: 'yes' }).status).toBe(0);
+    expect(test.calls()).toEqual(Array(2).fill('npx --no-install expo export --platform web --output-dir dist-web --clear EXPO_PUBLIC_USE_EMULATORS=1'));
   });
 
   it('refuses an illegal version before exporting, and an export without the stamp after', () => {
@@ -368,6 +408,19 @@ describe('ci-platform builds', () => {
     const unmatched = test.run('ci-platform', ['web'], { ...env, FAKE_NO_SENTRY: '1' });
     expect(unmatched.stderr).toMatch(/cannot be read in Sentry:\n {2}- _expo\/static\/js\/web\/entry\.js does not hand its debug id to the Sentry SDK: app\/metro\.config\.js must build on getSentryExpoConfig/);
     expect(existsSync(join(test.root, 'runner/web-artifact'))).toBe(false);
+  });
+
+  it('refuse a release bundle or export pointed at the emulators', () => {
+    const test = app();
+    const flag = /EXPO_PUBLIC_USE_EMULATORS would point this build at the Firebase emulators[\s\S]*set in this shell/;
+    expect(test.run('ci-platform', ['web'], { ...env, EXPO_PUBLIC_USE_EMULATORS: '1' }).stderr).toMatch(flag);
+    expect(test.run('ci-platform', ['android'], { ...env, EXPO_PUBLIC_USE_EMULATORS: '1' }).stderr).toMatch(flag);
+    test.put('app/.env.production', 'EXPO_PUBLIC_USE_EMULATORS=1\n');
+    const file = test.run('build-aab', ['--check']);
+    expect(file.status).toBe(1);
+    expect(file.stderr).toMatch(/not building the release bundle:\n {2}- EXPO_PUBLIC_USE_EMULATORS would point[\s\S]*set in app\/\.env\.production: remove the line/);
+    expect(test.calls()).toEqual([]);
+    expect(existsSync(join(test.root, 'runner'))).toBe(false);
   });
 
   it('checks every web export for its VAPID key before it becomes the artifact', () => {
