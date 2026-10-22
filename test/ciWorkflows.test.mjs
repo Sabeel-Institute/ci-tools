@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
@@ -50,6 +51,29 @@ describe('CI', () => {
   it("writes the emulators' secret placeholders from ci-tools.json, never from secrets", () => {
     expect(ci).toContain(`SECRETS: '${JSON.stringify(full.ci.emulatorSecrets)}'`);
     expect(ci).not.toContain('secrets.');
+  });
+});
+
+describe('actions', () => {
+  const repo = new URL('..', import.meta.url);
+  const read = (directory) => readdirSync(new URL(directory, repo)).filter((name) => name.endsWith('.yml'))
+    .map((name) => [`${directory}${name}`, readFileSync(new URL(`${directory}${name}`, repo), 'utf8')]);
+  const uses = (files) => files.flatMap(([file, text]) => [...text.matchAll(/^\s*-?\s*uses: ([^@\s]+)@(\S+)/gm)]
+    .map((match) => ({ file, action: match[1], ref: match[2] })));
+
+  it('are named only in whole workflows, the files Dependabot reads', () => {
+    expect(uses(read('workflows/partials/'))).toEqual([]);
+    const dependabot = readFileSync(new URL('.github/dependabot.yml', repo), 'utf8');
+    expect(dependabot).toContain('directories: ["/", "/workflows"]');
+  });
+
+  it('each run at one version, in the templates and in these workflows', () => {
+    const named = uses([...read('workflows/'), ...read('.github/workflows/')]);
+    expect(named.length).toBeGreaterThan(0);
+    const split = [...Map.groupBy(named, (use) => use.action)].map(([action, all]) => [action, Map.groupBy(all, (use) => use.ref)])
+      .filter(([, refs]) => refs.size > 1)
+      .map(([action, refs]) => `${action}: ${[...refs].map(([ref, at]) => `${ref} in ${[...new Set(at.map((use) => use.file))].join(', ')}`).join('; ')}`);
+    expect(split).toEqual([]);
   });
 });
 

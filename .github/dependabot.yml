@@ -8,10 +8,18 @@ updates:
       time: "14:00"
       timezone: America/Chicago
     open-pull-requests-limit: 3
+  # This repository's workflows and the templates the apps' workflows are
+  # rendered from: one pull request per action moves it everywhere. The apps
+  # leave github-actions out of their own configuration (check-app), and the
+  # partials name no action, since Dependabot reads only whole workflows.
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/workflows"]
     schedule:
       interval: weekly
       day: monday
       time: "14:00"
       timezone: America/Chicago
+    groups:
+      actions:
+        patterns: ["*"]
+        group-by: dependency-name

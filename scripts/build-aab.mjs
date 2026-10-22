@@ -111,7 +111,7 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
         '',
         built.commit.endsWith('+')
           ? 'Built from uncommitted changes, so not a build to publish. Commit, then build again.'
-          : 'Upload it with: npm run publish:play -- --check, then npm run publish:play -- --internal',
+          : 'Upload it with: npx sabeel-ci publish-play --check, then npx sabeel-ci publish-play --internal',
       ].join('\n'));
     }
   } catch (error) {
