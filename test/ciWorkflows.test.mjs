@@ -56,7 +56,8 @@ describe('CI', () => {
   });
 
   it('gives up on a stuck Chromium install in minutes, not at the job timeout', () => {
-    expect(job(ci, 'browser')).toContain('- name: Install Chromium\n        timeout-minutes: 10\n');
+    expect(job(ci, 'browser')).toContain('- name: Install Chromium\n        timeout-minutes: 12\n'
+      + '        run: timeout 300 npx playwright install --with-deps chromium || timeout 300 npx playwright install --with-deps chromium\n');
   });
 });
 
