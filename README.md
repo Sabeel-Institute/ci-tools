@@ -47,7 +47,8 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `release <X.Y.Z> [--notes <entry.md>] [--dry-run]` | Open the release pull request from origin/main: the version, the iOS build number, the manual and the deploy-log entry |
+| `release <X.Y.Z> [--notes <entry.md>] [--dry-run]` | Open the release pull request from origin/main: the version, the iOS build number, the manual (its version line and PDF, through `render-manual`) and the deploy-log entry |
+| `render-manual` | `docs/USER-MANUAL.md` to `docs/USER-MANUAL.pdf` with Chrome: a cover with the Sabeel logo (`app/assets/logo.png`), `app.json`'s name less "Sabeel Institute" or "Sabeel", its version and this month; refuses a manual whose "*For app version X.Y.Z · <Month YYYY>*" line names another version. Screenshot pairs are a `<div class="pair">` of a `figure.ph` (phone, first) and a `figure.wd` (computer), images relative to `docs/`. Python (`scripts/lib/render-manual.py`, PEP 723), run with `uv run --script`; needs `uv` and `google-chrome` |
 | `release --ship` | On main once the owner has merged it: build, check, tag (the GitHub release, with the APKs and the manual) and publish to Play |
 | `publish-play --check\|--internal` | The release bundle to Play internal testing: refuses one not signed with a release key, not HEAD's clean commit or not `app.json`'s version; uploads a draft and completes it only once Play signs the APKs phones install with `release.appSigningCertificate`. `--check` runs the gates and proves the Play permission |
 | `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, the native Sentry DSN, privacy manifest |

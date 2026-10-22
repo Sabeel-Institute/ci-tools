@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { selfTest } from '../scripts/check-version.mjs';
@@ -196,6 +196,33 @@ describe('preflight-metro', () => {
     expect(elsewhere.stderr).toContain(`pid ${process.pid}  ${process.cwd()}`);
     ss(2 ** 22 + 1);
     expect(test.run('preflight-metro').stderr).toMatch(/working directory unreadable/);
+  });
+});
+
+describe('render-manual', () => {
+  const bin = resolve(import.meta.dirname, '../bin/sabeel-ci.mjs');
+  const render = (test, path, ...args) => spawnSync(process.execPath, [bin, 'render-manual', ...args], { cwd: test.root, encoding: 'utf8', env: { ...process.env, PATH: path } });
+
+  it('runs the renderer with uv, as a PEP 723 script', () => {
+    const test = app();
+    test.put('bin/uv', '#!/bin/sh\necho "uv $*" >> calls.log\n', 0o755);
+    const result = render(test, `${join(test.root, 'bin')}:/usr/bin:/bin`);
+    expect(result.status).toBe(0);
+    expect(test.calls()).toEqual([`uv run --quiet --script ${resolve(import.meta.dirname, '../scripts/lib/render-manual.py')}`]);
+    expect(readFileSync(resolve(import.meta.dirname, '../scripts/lib/render-manual.py'), 'utf8'))
+      .toMatch(/^# \/\/\/ script\n# requires-python = ">=3\.10"\n# dependencies = \["markdown==\d+\.\d+\.\d+"\]\n# \/\/\/\n/);
+  });
+
+  it('says what is missing, and takes no arguments', () => {
+    const test = app();
+    // A PATH holding bash alone, wherever the machine keeps uv.
+    mkdirSync(join(test.root, 'bare'));
+    symlinkSync(execFileSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(), join(test.root, 'bare/bash'));
+    const bare = join(test.root, 'bare');
+    expect(render(test, bare).stderr).toMatch(/^render-manual: uv is not on the PATH/);
+    const extra = render(test, bare, 'docs/OTHER.md');
+    expect(extra.status).toBe(2);
+    expect(extra.stderr).toBe('usage: sabeel-ci render-manual\n');
   });
 });
 

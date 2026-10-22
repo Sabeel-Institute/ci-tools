@@ -4,6 +4,14 @@ Changelog
 Unreleased
 ----------
 
+- ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
+  place of the three diverged ``docs/render-manual.py`` copies, and
+  ``release`` runs it. It keeps the best of them: the version from
+  ``app.json`` and this month on the cover, the manual's version line checked
+  against ``app.json``, the cover title from ``app.json``'s name, LMS's
+  phone-then-computer screenshot pairs (``figure.ph``, ``figure.wd``). The logo
+  is ``app/assets/logo.png``. It is Python with inline dependencies
+  (``markdown`` 3.10.3), run by ``uv run --script``.
 - ``check-app`` holds more of each app to one shape: the Hosting site
   (security headers on ``!/__/**`` only, immutable ``/_expo/static/**`` and
   ``/assets/**``, the single-page rewrite from ``!/_expo/**``), a

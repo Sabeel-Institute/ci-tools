@@ -56,8 +56,10 @@ fine.
   and the apps leave `github-actions` out of their own Dependabot
   (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
-  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
-  and `ci-sdk.mjs` are imported.
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`,
+  `sentry.mjs` and `ci-sdk.mjs` are imported, and `render-manual.py`, the one
+  Python here, is run by `render-manual.sh` with `uv run --script` (its
+  dependencies are pinned inline, PEP 723). Nothing before `npm ci` runs it.
 
 ## Tests
 
