@@ -6,6 +6,7 @@ import { config } from '../lib/config.mjs';
 import { writeBuildInfo } from './build-info.mjs';
 import { checkVersion } from './check-version.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
+import { emulatorFlagProblem } from './lib/emulator-flag.mjs';
 import { dsnProblem, nativeBuildEnv, sentryGradleProblem, tokenProblem } from './lib/sentry.mjs';
 
 /**
@@ -28,7 +29,10 @@ import { dsnProblem, nativeBuildEnv, sentryGradleProblem, tokenProblem } from '.
  *    SENTRY_AUTH_TOKEN, and build.gradle applies sentry.gradle when that file
  *    is there. Both files are gitignored, so a fresh clone would build a
  *    release that reports nothing, or nothing anyone can read, and looks the
- *    same.
+ *    same;
+ *  - EXPO_PUBLIC_USE_EMULATORS is set neither in the shell nor in a dotenv
+ *    file in app/ (scripts/lib/emulator-flag.mjs): Metro would inline it into
+ *    the release's bundle.
  * Then `build-info` stamps the commit and `./gradlew bundleRelease` runs, with
  * ci-tools.json's Sentry org and native project in its environment, so
  * sentry.gradle uploads the bundle's source map there. The bundle must come
@@ -43,7 +47,7 @@ const GRADLE = 'app/android/app/build.gradle';
 export function releaseChecks() {
   const version = checkVersion();
   const gradle = existsSync(GRADLE) ? sentryGradleProblem(readFileSync(GRADLE, 'utf8')) : `${GRADLE} is missing`;
-  const problems = [...version.problems, deployNotesProblem(version.version), dsnProblem('native'), tokenProblem(), gradle];
+  const problems = [...version.problems, deployNotesProblem(version.version), dsnProblem('native'), tokenProblem(), gradle, emulatorFlagProblem()];
   return { ...version, problems: problems.filter(Boolean) };
 }
 

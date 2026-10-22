@@ -4,6 +4,27 @@ Changelog
 Unreleased
 ----------
 
+- ``build-web`` and ``build-aab`` refuse while ``EXPO_PUBLIC_USE_EMULATORS``
+  is set in the shell or in an ``app/.env*`` file, as LMS's
+  ``web-release.mjs`` did before Hosting's predeploy became ``build-web``: a
+  local ``firebase deploy --only hosting`` or ``release --ship`` from a
+  dev-loop terminal would otherwise ship a bundle pointed at the emulators.
+  ``build-web --emulators`` builds for the emulators on purpose and sets the
+  flag itself.
+- ``build-web --source-maps`` requires the debug ids itself (each script
+  hands its id to the Sentry SDK and matches its map), so a local build shows
+  what ``ci-platform web`` refuses.
+- ``check-app`` also requires Hosting's ``predeploy`` to be ``npm run
+  web:export -w @sabeel/app`` alone; finds another emulator project named
+  anywhere in ``scripts/``, the ``package.json`` files, ``firebase.json``,
+  ``.firebaserc`` or ``functions/.env*``, not only after ``--project``; and
+  requires the web push key committed as ``VAPID_PUBLIC_KEY`` in
+  ``app/src/firebase-config.ts``, a P-256 public key. A ``sentry.gradle`` gate
+  above ``def projectRoot``, or with none, is named as such by ``check-app``
+  and ``build-aab``: Gradle stops on the unknown property.
+- ``check-web-push`` sends people to ``VAPID_PUBLIC_KEY`` in
+  ``app/src/firebase-config.ts``, where every app commits the public key.
+- The uniform configuration's handoff is done: ``docs/PLAN.md`` is gone.
 - ``render-manual`` renders ``docs/USER-MANUAL.pdf`` for every app, in
   place of the three diverged ``docs/render-manual.py`` copies, and
   ``release`` runs it. It keeps the best of them: the version from
@@ -80,7 +101,7 @@ Unreleased
   ``check-push apple`` is Kanban's ``check-apple-push``), ``check-web-push``
   and ``send-test-push``. They send through the app's own functions code,
   which each app brings to the contract in README's "Push from the app's own
-  code" when it migrates (``docs/PLAN.md``). ``ci-platform web`` runs ``check-web-push`` on
+  code" when it migrates. ``ci-platform web`` runs ``check-web-push`` on
   every web build, not only when the app has a copy; the check reads the
   scripts ``index.html`` loads and requires the key to be a P-256 point.
 - Build stamping and the checks before a build, one way in every app:
@@ -118,7 +139,7 @@ Unreleased
   media store's S3 port to 61327 and swaps its web dev-server ports, Kanban
   pins Cloud Tasks and Eventarc, Time Tracker moves Eventarc to 61009, and the
   functions workspaces name their passes ``test:emulator:rules`` and
-  ``test:emulator:functions`` (``docs/PLAN.md``).
+  ``test:emulator:functions``.
 - ``publish-play``: the one Play publisher, merged from the apps' three copies
   with every safeguard any of them had. It needs ``release.appSigningCertificate``
   in ``ci-tools.json`` (the certificate Play signs installs with) and the

@@ -33,7 +33,7 @@ describe('check-web-push', () => {
   });
 
   it('fails an export with no key but the SDK sample, or with the permission path folded away', () => {
-    expect(() => checkWebPush(site({ 'index-a1.js': bundle('') }))).toThrow(/no VAPID key in the exported bundle[\s\S]*EXPO_PUBLIC_FCM_VAPID_KEY/);
+    expect(() => checkWebPush(site({ 'index-a1.js': bundle('') }))).toThrow(/no VAPID key in the exported bundle[\s\S]*VAPID_PUBLIC_KEY in app\/src\/firebase-config\.ts/);
     expect(() => checkWebPush(site({ 'index-a1.js': bundle(vapidKey(), 'enablePush=async function(e){return"unavailable"}') })))
       .toThrow(/enablePush was folded/);
   });

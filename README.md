@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says; the Hosting site, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, no port stated in `scripts/` or `package.json`, and no other emulator project named there, in `firebase.json`, `.firebaserc` or `functions/.env*`; `functions/package-lock.json` in step with its manifest; Sentry set up as "Sentry" below says; the web push key committed as `VAPID_PUBLIC_KEY` in `app/src/firebase-config.ts`, a P-256 public key; the Hosting site with its predeploy, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -36,8 +36,8 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
-| `build-web [--source-maps]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp |
-| `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; `--check` stops before the build |
+| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself. `--source-maps` writes the maps beside the scripts and requires each script to hand its debug id to the Sentry SDK, as the release build does |
+| `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; refuses while `EXPO_PUBLIC_USE_EMULATORS` is set, as `build-web` does; `--check` stops before the build |
 | `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
@@ -89,7 +89,7 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `check-push [fcm\|apple]` | Against the real project: FCM and both Apple services accept a message from it, and refuse a token that cannot exist with an answer the functions prune on |
-| `check-web-push` | The exported web bundle carries a VAPID public key and the permission path; `ci-platform web` runs it on every web build |
+| `check-web-push` | The exported web bundle carries a VAPID public key (the app's `VAPID_PUBLIC_KEY`) and the permission path; `ci-platform web` runs it on every web release build |
 | `send-test-push [--apple <development\|production>] <token> [key=value …]` | One real push to one device, opening what the pairs name |
 
 ## ci-tools.json
@@ -126,8 +126,9 @@ Its Android build, held by `check-app`:
 - `app/android/app/build.gradle` signs releases with the properties file
   `SABEEL_KEYSTORE_PROPERTIES` names, which `ci-platform` sets in CI, and
   stops a release it cannot sign: without a key AGP creates no
-  `validateSigningRelease` task and packages the release unsigned. A null
-  signing config, the pre-merge build's, passes:
+  `validateSigningRelease` task and packages the release unsigned. The stop
+  goes after the `android { }` block; a null signing config, the pre-merge
+  build's, passes:
 
   ```groovy
   gradle.taskGraph.whenReady { graph ->
@@ -143,8 +144,9 @@ Its Android build, held by `check-app`:
   `packages/shared/src`, the default: `<meta-data
   android:name="com.google.firebase.messaging.default_notification_channel_id"
   android:value="…"/>`.
-- `.gitignore` covers `*.jks`, `*.keystore`, `*service-account*.json` and
-  `*firebase-adminsdk*.json` (keep `!app/android/app/debug.keystore`).
+- `.gitignore` covers `*.jks`, `*.keystore`, `*service-account*.json`,
+  `*firebase-adminsdk*.json` and `sentry.properties` (keep
+  `!app/android/app/debug.keystore`).
 
 Its Hosting site, LMS's shape, held by `check-app`: one site in
 `firebase.json`; `X-Frame-Options: DENY`, `Content-Security-Policy:
@@ -153,7 +155,10 @@ frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and
 source (Firebase's `/__/` pages are framed by sign-in); `/_expo/static/**`
 and `/assets/**` cached `public, max-age=31536000, immutable`; the
 single-page rewrite to `/index.html` from `!/_expo/**` alone, so a missing
-chunk is a 404; and a `default` alias in `.firebaserc`.
+chunk is a 404; `predeploy` `npm run web:export -w @sabeel/app` alone, so a
+local hosting deploy exports again through `build-web` rather than uploading
+whatever an e2e run left in `app/dist-web`; and a `default` alias in
+`.firebaserc`.
 
 ## Sentry
 
@@ -167,7 +172,8 @@ run without what makes a crash readable. Pull-request builds need none of it.
 | The auth token | `SENTRY_AUTH_TOKEN` in `app/.env.sentry-build-plugin`, the build machine's gitignored file (`BUILD_ENV` in CI, with the App Store Connect key ids and the Apple team) |
 
 - **Android**: `build.gradle` applies `sentry.gradle` exactly when
-  `app/.env.sentry-build-plugin` exists:
+  `app/.env.sentry-build-plugin` exists, below Expo's `def projectRoot`,
+  which the gate reads:
 
   ```groovy
   if (file("$projectRoot/.env.sentry-build-plugin").exists()) {
@@ -182,9 +188,10 @@ run without what makes a crash readable. Pull-request builds need none of it.
 - **iOS**: `build-ios` exports the same org and native project, and the
   token from the file (`ci-platform prepare-ios` in CI); Xcode's Sentry phase
   uploads the dSYMs and the source map.
-- **Web**: `ci-platform web` exports with source maps, requires every script
-  Metro wrote to carry its debug id into the Sentry SDK, and puts the maps
-  beside the site in the artifact, never in it. Deploy Web's `sourcemaps`
+- **Web**: `ci-platform web` exports with `build-web --source-maps`, which
+  requires every script Metro wrote to carry its debug id into the Sentry SDK
+  (run locally, it shows the same), and puts the maps beside the site in the
+  artifact, never in it. Deploy Web's `sourcemaps`
   job, in `release-build` after the owner check, verifies them against the
   build record and uploads them to `sentry.projects.web` with `sentry-cli`
   2.58.6 (checksum-pinned, no npm install); the site is published only once
@@ -289,6 +296,11 @@ first (`### <YYYY-MM-DD> — <summary> — vX.Y.Z`); it titles and describes the
 pull request and the GitHub release. `--ship` prints the two workflow runs that
 put the same commit on the web and on iPhones.
 
+The web goes out through Deploy Web only: it publishes a build of main whose
+source maps it has uploaded to Sentry first. A local `firebase deploy --only
+hosting` builds through the predeploy but uploads no source maps, so the
+crashes of what it ships reach Sentry unreadable.
+
 ## Changing ci-tools
 
 A change here lands through a pull request merged by the owner, like the apps.
@@ -297,5 +309,4 @@ An app picks it up by moving its pin
 re-rendering (`npx sabeel-ci workflows`) and passing its own CI. CI refuses a
 pin that is not on this repository's `main`.
 
-`CHANGELOG.rst` records what each change means for the apps. `docs/PLAN.md` is
-what each app still changes to adopt the current configuration.
+`CHANGELOG.rst` records what each change means for the apps.

@@ -6,6 +6,7 @@ import { config } from '../lib/config.mjs';
 import { versionProblems } from '../lib/version.mjs';
 import { BUILD_INFO } from './build-info.mjs';
 import { BLOCK, LAYOUT, LOWEST_BASE, PINNED, STARTABLE, emulatorProject, ports } from '../lib/ports.mjs';
+import { SDK_DEFAULT, isP256Point } from './check-web-push.mjs';
 import { firebaseFixtures } from './ci-premerge.mjs';
 import { deployNotesProblem } from './deploy-notes.mjs';
 import { SECRET_LOCAL } from './lib/firebase-emulators.mjs';
@@ -56,8 +57,9 @@ function scriptFiles(root, directory = 'scripts') {
  * cannot read it and are held in step here: firebase.json, which the
  * emulators bind, and app/src/env.ts's EMULATOR_PORTS, inlined into the
  * client bundle. Scripts and package.json state no port of the block at all,
- * and no Firebase default, and pass no other emulator project: they read
- * them from `sabeel-ci ports` and ci-tools.json. A port that disagrees is
+ * and no Firebase default: they read them from `sabeel-ci ports` and
+ * ci-tools.json. Neither they, Firebase's config nor the functions' parameters
+ * name another emulator project (projectProblems). A port that disagrees is
  * silent until something connects to it and finds nobody, or worse, a
  * sibling checkout's emulator, which reads and writes happily and passes.
  */
@@ -145,11 +147,36 @@ export function portProblems(root = '.') {
     if (abandoned.size) found.push(`${file} names ${list(abandoned)}: Firebase defaults or given-up ports, not this app's`);
     if (foreign.size) found.push(`${file} names ${list(foreign)}, outside this app's block ${base}-${last}: another checkout's`);
     if (stated.size) found.push(`${file} states ${list(stated)}: read ports from ci-tools instead (\`sabeel-ci ports <name>\`, ports() in Node)`);
-    for (const other of new Set([...text.matchAll(/--project[ =]+["']?(demo-[a-z0-9-]+)/g)].map((match) => match[1]).filter((id) => id !== project))) {
-      found.push(`${file} passes --project ${other}; this app's emulator project is ${project}`);
-    }
   }
-  return found;
+  return [...found, ...projectProblems(root, project)];
+}
+
+/**
+ * An emulator project id: demo-sabeel and its hyphenated words, or any demo-
+ * id passed as --project. A template (demo-sabeel-<name>, demo-sabeel-${name})
+ * is not one.
+ */
+const PROJECT_IDS = [/(?<![\w-])(demo-sabeel(?:-[a-z0-9]+)*)(?![\w<${-])/g, /--project[ =]+["']?(demo(?:-[a-z0-9]+)+)(?![\w<${-])/g];
+
+/**
+ * Every emulator project the scripts, the npm scripts, Firebase's config and
+ * the functions' parameters name is this app's: another is a renamed
+ * project's leftover (`CHECK_PROJECT=demo-sabeel-recordings`), which talks to
+ * nobody, or to a sibling checkout's emulators. The docs and the deploy log
+ * keep their history; they are not read.
+ */
+function projectProblems(root, project) {
+  const functions = existsSync(join(root, 'functions'))
+    ? readdirSync(join(root, 'functions')).filter((name) => name.startsWith('.env')).sort().map((name) => `functions/${name}`) : [];
+  const files = [...scriptFiles(root), 'package.json', 'app/package.json', 'functions/package.json', 'firebase.json', '.firebaserc', ...functions];
+  return files.flatMap((file) => {
+    const text = readIf(root, file);
+    if (text === undefined) return [];
+    const others = [...new Set(PROJECT_IDS.flatMap((pattern) => [...text.matchAll(pattern)].map((match) => match[1])))].filter((id) => id !== project);
+    return others.length
+      ? [`${file} names the emulator project ${others.join(', ')}; this app's is ${project}: take it from \`sabeel-ci ports --project\` (emulatorProject() in Node)`]
+      : [];
+  });
 }
 
 /** Headers on every page Hosting serves but Firebase's own (/__/, whose auth handler is framed). */
@@ -164,6 +191,8 @@ const NOT_FIREBASE = '!/__/**';
 export const IMMUTABLE = { '/_expo/static/**': 'public, max-age=31536000, immutable', '/assets/**': 'public, max-age=31536000, immutable' };
 /** The single-page app's rewrite, which leaves Metro's chunks out: a missing one is a 404, not index.html run as JavaScript. */
 export const SPA_REWRITE = { source: '!/_expo/**', destination: '/index.html' };
+/** Hosting's predeploy: a local hosting deploy exports again through build-web, never uploading what an e2e run left in app/dist-web. */
+export const PREDEPLOY = 'npm run web:export -w @sabeel/app';
 
 /** firebase.json's Hosting site and .firebaserc against the one shape every app serves. */
 export function hostingProblems(root = '.') {
@@ -193,6 +222,11 @@ export function hostingProblems(root = '.') {
     if (valueOf(rules.find((rule) => rule.source === source), 'Cache-Control') !== value) {
       found.push(`firebase.json hosting does not cache ${source} as "${value}": its files are named by their content`);
     }
+  }
+  const predeploy = [hosting.predeploy].flat();
+  if (predeploy.length !== 1 || predeploy[0] !== PREDEPLOY) {
+    found.push(`firebase.json hosting's predeploy must be "${PREDEPLOY}" alone, so a hosting deploy exports through build-web, `
+      + `which refuses an emulator bundle, rather than uploading whatever app/dist-web holds${hosting.predeploy === undefined ? '' : ` (it runs ${JSON.stringify(hosting.predeploy)})`}`);
   }
   const rewrites = (Array.isArray(hosting.rewrites) ? hosting.rewrites : []).filter((rewrite) => rewrite.destination === SPA_REWRITE.destination);
   if (!rewrites.some((rewrite) => rewrite.source === SPA_REWRITE.source) || rewrites.some((rewrite) => rewrite.source !== SPA_REWRITE.source)) {
@@ -236,6 +270,25 @@ export function pushChannelProblems(root = '.') {
   return value === channel ? [] : [`${MANIFEST} makes ${value} the default notification channel; the functions send on PUSH_CHANNEL_ID ${channel}`];
 }
 
+const FIREBASE_CONFIG = 'app/src/firebase-config.ts';
+
+/**
+ * The web push public key, committed where every app's web push reads it: it
+ * is public, as the Firebase apiKey beside it is, and a build without it, or
+ * with a broken paste, is inert in every browser and fails nowhere.
+ * check-web-push looks for it again in the release export.
+ */
+export function vapidKeyProblems(root = '.') {
+  const key = /^export const VAPID_PUBLIC_KEY\s*=\s*['"]([^'"]*)['"]/m.exec(readIf(root, FIREBASE_CONFIG) ?? '')?.[1];
+  if (key === undefined) {
+    return [`${FIREBASE_CONFIG} does not export VAPID_PUBLIC_KEY = '<key>', the public key of the project's Web Push certificate `
+      + '(Firebase console, Cloud Messaging) that web push subscribes browsers with'];
+  }
+  if (key === SDK_DEFAULT) return [`${FIREBASE_CONFIG}'s VAPID_PUBLIC_KEY is the Firebase SDK's sample key, not the project's Web Push certificate`];
+  return isP256Point(key) ? [] : [`${FIREBASE_CONFIG}'s VAPID_PUBLIC_KEY is not a P-256 public key: truncated, or copied from the wrong field `
+    + "of the project's Web Push certificate (Firebase console, Cloud Messaging). Browsers refuse to subscribe with it"];
+}
+
 /** The google-services Gradle plugin every app builds with. */
 export const GOOGLE_SERVICES_PLUGIN = '4.4.4';
 
@@ -261,7 +314,7 @@ export function releaseSigningProblem(gradle) {
   const asks = [/\(package\|sign\)Release\(Bundle\)\?/, /buildTypes\.release\.signingConfig\b/, /!=\s*null/, /\.storeFile\s*==\s*null/, /throw new GradleException\(/];
   if (asks.every((ask) => ask.test(block))) return null;
   return 'app/android/app/build.gradle does not stop a release it cannot sign: without a key AGP packages it unsigned\n'
-    + '    rather than failing. Add, after the android block:\n'
+    + '    rather than failing. Add, after the android { } block:\n'
     + '        gradle.taskGraph.whenReady { graph ->\n'
     + '            def releaseSigning = android.buildTypes.release.signingConfig\n'
     + '            def packagesRelease = graph.allTasks.any { it.project == project && it.name ==~ /^(package|sign)Release(Bundle)?$/ }\n'
@@ -281,6 +334,9 @@ export const KEY_FILES = {
   'app/android/app/release.keystore': '*.keystore',
   'play-service-account.json': '*service-account*.json',
   'example-project-firebase-adminsdk-abc12-0123456789.json': '*firebase-adminsdk*.json',
+  // Sentry's Android tooling reads a token from it; a copy left in a checkout
+  // would otherwise go in with the next `git add -A`.
+  'app/android/sentry.properties': 'sentry.properties',
 };
 
 export function problems(root = '.') {
@@ -357,6 +413,7 @@ export function problems(root = '.') {
   });
   attempt(() => hostingProblems(root));
   attempt(() => pushChannelProblems(root));
+  attempt(() => vapidKeyProblems(root));
   attempt(() => {
     // The bundles carry debug ids, which match a crash to its source map with
     // no release name to keep in step; Sentry's Metro config adds them.

@@ -2,7 +2,7 @@
 
 Shared CI, release and device-test tooling for `Sabeel-Institute/lms`,
 `sabeel-institute-kanban` and `sabeel-institute-time-tracker`. Usage is in
-`README.md`; what each app still changes to adopt it is `docs/PLAN.md`.
+`README.md`.
 
 **This repository is PUBLIC**, like the three apps. No secrets, no real names,
 no data. Identifiers already public in the apps (bundle ids, project ids) are
@@ -16,7 +16,7 @@ fine.
 - **What differs between the apps lives in `ci-tools.json`,** declared in
   `lib/config.mjs`'s SCHEMA. Never branch on which app this is (no
   `root.endsWith('/lms')`, no `existsSync('scripts/<app-only>.mjs')`). An app
-  that differs only by accident changes instead (`docs/PLAN.md`).
+  that differs only by accident changes instead.
 - **Ports come from `lib/ports.mjs` and the app's `emulators.base`.** No
   script here states an app's port. `free-emulator-ports` reaches no further
   than the app's suite ports and stops only processes working inside the
@@ -29,6 +29,10 @@ fine.
   shell scripts. The release jobs never install the app's dependencies before
   verifying provenance; Publish Android and the device check never install
   them at all.
+- **A production build never points at the emulators.** `build-web` and
+  `build-aab` refuse while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or
+  in an `app/.env*` file (`scripts/lib/emulator-flag.mjs`); `build-web
+  --emulators` is the one way to build for them, and sets the flag itself.
 - **The push tools run the app's own sender.** `check-push` and
   `send-test-push` load `functions/src/{fcm,apns,testPush}.ts` from source and
   `firebase-admin` from `functions/` (`scripts/lib/push.mjs`), never a copy
@@ -57,9 +61,10 @@ fine.
   (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
   `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`,
-  `sentry.mjs` and `ci-sdk.mjs` are imported, and `render-manual.py`, the one
-  Python here, is run by `render-manual.sh` with `uv run --script` (its
-  dependencies are pinned inline, PEP 723). Nothing before `npm ci` runs it.
+  `sentry.mjs`, `emulator-flag.mjs` and `ci-sdk.mjs` are imported, and
+  `render-manual.py`, the one Python here, is run by `render-manual.sh` with
+  `uv run --script` (its dependencies are pinned inline, PEP 723). Nothing
+  before `npm ci` runs it.
 
 ## Tests
 

@@ -110,10 +110,11 @@ jobs:
           java-version: 21
       # ci-tools: emulator-stack
       # ci-tools: emulator-secrets
-      # A stuck apt mirror held this step until the job's own timeout.
+      # An apt mirror can hang (one held this step for 45 minutes): a stuck
+      # attempt is stopped after 5 minutes and tried once more.
       - name: Install Chromium
-        timeout-minutes: 10
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 12
+        run: timeout 300 npx playwright install --with-deps chromium || timeout 300 npx playwright install --with-deps chromium
       - name: Browser suite
         env:
           SUITE: ${{ matrix.suite }}

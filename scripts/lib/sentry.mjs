@@ -54,12 +54,26 @@ export function tokenProblem(root = '.') {
     + '    from the BUILD_ENV secret.';
 }
 
-/** Why build.gradle's text does not apply sentry.gradle under SENTRY_GRADLE_GATE, or null. */
+/** Expo's line in build.gradle that the gate's `$projectRoot` reads. */
+export const PROJECT_ROOT = 'def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()';
+
+/**
+ * Why build.gradle's text does not apply sentry.gradle under SENTRY_GRADLE_GATE,
+ * below the `def projectRoot` the gate reads, or null. Above it, or with none,
+ * Gradle stops: "Could not get unknown property 'projectRoot'".
+ */
 export function sentryGradleProblem(gradle) {
   const lines = gradle.split('\n').map((line) => line.trim());
   const applies = lines.flatMap((line, index) => (/^apply from:.*\bsentry\.gradle\b/.test(line) ? [index] : []));
-  const before = (index) => lines.slice(0, index).findLast((line) => line !== '');
-  if (applies.length === 1 && before(applies[0]) === SENTRY_GRADLE_GATE) return null;
+  const gate = applies.length === 1 ? lines.slice(0, applies[0]).findLastIndex((line) => line !== '') : -1;
+  if (gate !== -1 && lines[gate] === SENTRY_GRADLE_GATE) {
+    const defined = lines.findIndex((line) => /^def\s+projectRoot\s*=/.test(line));
+    if (defined !== -1 && defined < gate) return null;
+    return `app/android/app/build.gradle's Sentry gate reads $projectRoot on line ${gate + 1}, but `
+      + (defined === -1 ? 'build.gradle never defines projectRoot' : `projectRoot is defined only on line ${defined + 1}, after it`)
+      + `: Gradle stops with "Could not get unknown property 'projectRoot'".\n`
+      + `    Put the gate below Expo's\n        ${PROJECT_ROOT}`;
+  }
   return 'app/android/app/build.gradle must apply sentry.gradle exactly when app/.env.sentry-build-plugin exists,\n'
     + '    so a release uploads its source maps and a pull-request build applies nothing:\n'
     + `        ${SENTRY_GRADLE_GATE}\n`
