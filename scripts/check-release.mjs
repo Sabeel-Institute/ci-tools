@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
  * Does the release build start, and is it the build it claims to be? Run on the
  * artifact that ships, on an Android emulator, the same here as in CI:
  *
- *   npm run check:release -- <app.aab|app.apk> [--launches 5] [--commit <sha>] [--out <dir>]
+ *   sabeel-ci check-release <app.aab|app.apk> [--launches 5] [--commit <sha>] [--out <dir>]
  *
  * An AAB becomes a universal APK through bundletool, signed with a throwaway
  * key, which is enough to install it. The app is uninstalled first, so this
@@ -194,7 +194,7 @@ async function launch(pkg, round, out, expected) {
 async function main() {
   const artifact = process.argv[2];
   if (!artifact || !/\.(aab|apk)$/.test(artifact) || !existsSync(artifact)) {
-    throw new Error('usage: npm run check:release -- <app.aab|app.apk> [--launches 5] [--commit <sha>] [--out <dir>]');
+    throw new Error('usage: sabeel-ci check-release <app.aab|app.apk> [--launches 5] [--commit <sha>] [--out <dir>]');
   }
   const launches = Number(option('--launches', '5'));
   if (!Number.isInteger(launches) || launches < 1 || launches > 50) throw new Error('--launches must be 1 to 50');

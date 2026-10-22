@@ -24,7 +24,8 @@ differed only by accident. When every app has migrated, this file goes.
   `.github/workflows/` by `sabeel-ci workflows`; `check-app` fails CI on any
   drift. The workflow files stay in each app, so a change to one shows in that
   app's pull request and GitHub's environments, OIDC claims and rulesets see
-  nothing new.
+  nothing new. Dependabot moves the actions here, in the templates; an app
+  takes them with its next pin.
 
 ## Where it stands
 
@@ -55,6 +56,7 @@ passing.
   `sabeel-ci`.
 - **The CI contract.** npm scripts `lint`, `typecheck`, `test`,
   `test:emulator` and each of `ci.browserSuites`; screenshots under `shots/`.
+  `.github/dependabot.yml` has no `github-actions` entry.
 - **Builds.** `prepare` ends `&& sabeel-ci build-info`; `build:aab`,
   `check:version` and `check:text` run `sabeel-ci build-aab`, `check-version`
   and `check-text-sources`, and `lint` runs the last two. In `app/`:

@@ -72,6 +72,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
       # ci-tools: emulator-stack
       - name: Emulator integration tests
         run: npm run test:emulator
@@ -100,6 +104,10 @@ jobs:
       # ci-tools: ci-tools
       - name: Install dependencies
         run: npm ci
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
       # ci-tools: emulator-stack
       - name: Install Chromium
         run: npx playwright install --with-deps chromium

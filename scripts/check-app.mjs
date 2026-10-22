@@ -199,6 +199,14 @@ export function problems(root = '.') {
     return found;
   });
   attempt(() => {
+    // ci-tools' Dependabot moves the actions in the templates; one here would
+    // edit rendered workflows, and its pull requests would fail as drift.
+    const dependabot = readIf(root, '.github/dependabot.yml') ?? '';
+    return /^\s*-?\s*package-ecosystem:\s*["']?github-actions\b/m.test(dependabot)
+      ? ['.github/dependabot.yml updates github-actions, but the workflows are rendered from ci-tools, whose Dependabot updates them: remove that entry']
+      : [];
+  });
+  attempt(() => {
     // native-e2e tells each flow the id of the build it installed, which
     // differs between Android's debug build and iOS.
     const directory = resolve(root, 'maestro');

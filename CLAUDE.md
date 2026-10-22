@@ -46,6 +46,10 @@ fine.
   from main's pin.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
+- **Actions are named in whole templates only, at one version everywhere.**
+  Dependabot reads `.github/workflows/` and `workflows/` but not a partial,
+  and the apps leave `github-actions` out of their own Dependabot
+  (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
   `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`
   and `ci-sdk.mjs` are imported.

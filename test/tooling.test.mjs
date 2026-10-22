@@ -268,6 +268,17 @@ describe('check-app', () => {
     ]);
   });
 
+  it('reports an app whose own Dependabot updates the rendered workflows', () => {
+    const { root, put } = app();
+    const npm = 'version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n';
+    put('.github/dependabot.yml', npm);
+    expect(problems(root)).toEqual([]);
+    put('.github/dependabot.yml', `${npm}  - package-ecosystem: "github-actions"\n    directory: /\n`);
+    expect(problems(root)).toEqual([
+      '.github/dependabot.yml updates github-actions, but the workflows are rendered from ci-tools, whose Dependabot updates them: remove that entry',
+    ]);
+  });
+
   it('reports a flow that does not take its app from native-e2e', () => {
     const { root, put } = app();
     put('maestro/board.yaml', 'appId: ${APP_ID}\n---\n- launchApp\n');

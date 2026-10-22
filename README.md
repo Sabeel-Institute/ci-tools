@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets and the build stamp; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets and the build stamp; no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, and none stated in `scripts/` or `package.json`; `functions/package-lock.json` in step with its manifest |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -114,9 +114,11 @@ Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `test`, `test:emulator`, each of `ci.browserSuites`, and `knip` when
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
 Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
-to the build it installed. Its `build.gradle` signs releases with the
-properties file `SABEEL_KEYSTORE_PROPERTIES` names, which `ci-platform` sets
-in CI, and fails closed without it.
+to the build it installed. Its `.github/dependabot.yml` leaves out
+`github-actions`: this repository's Dependabot updates the actions in the
+templates, and the app takes them with its next pin. Its `build.gradle`
+signs releases with the properties file `SABEEL_KEYSTORE_PROPERTIES` names,
+which `ci-platform` sets in CI, and fails closed without it.
 
 ## Push from the app's own code
 
