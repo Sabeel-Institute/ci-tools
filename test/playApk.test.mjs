@@ -1,5 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { universalApk } from '../scripts/play-apk.mjs';
+import { hasInstallerCheck, universalApk } from '../scripts/play-apk.mjs';
 
 const KEY = 'B1:61:7E:20:81:67:E4:0D:16:4E:38:CB:BA:29:48:7C:96:AE:5A:6F:E4:76:A7:37:17:5A:CC:91:B3:A5:99:6E';
 
@@ -44,6 +48,20 @@ describe("play-apk: the APK Play signs", () => {
   it('refuses what is not an APK', async () => {
     const { api } = play([{ certificateSha256Hash: KEY, generatedUniversalApk: { downloadId: 'u' } }], Buffer.from('<html>error</html>'));
     await expect(universalApk(api, 29001, KEY)).rejects.toThrow('What Play sent for versionCode 29001 is not an APK.');
+  });
+
+  it("finds Play's installer check in any of the APK's dex files", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'play-apk-'));
+    const apk = (name, dex) => {
+      for (const [file, text] of Object.entries(dex)) writeFileSync(join(dir, file), `dex\n035\0${text}`);
+      execFileSync('zip', ['-q', join(dir, name), ...Object.keys(dex)], { cwd: dir });
+      return join(dir, name);
+    };
+    expect(hasInstallerCheck(apk('plain.apk', { 'classes.dex': 'Lcom/sabeelinstitute/example/MainActivity;' }))).toBe(false);
+    expect(hasInstallerCheck(apk('protected.apk', {
+      'classes.dex': 'Lcom/sabeelinstitute/example/MainActivity;',
+      'classes2.dex': 'Lcom/pairip/licensecheck/LicenseActivity;',
+    }))).toBe(true);
   });
 
   it('keeps any other Play error as it is', async () => {

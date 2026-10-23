@@ -4,6 +4,15 @@ Changelog
 Unreleased
 ----------
 
+- ``play-apk`` refuses an APK carrying Play's installer check, which Play
+  Console's automatic protection adds: installed by anything but Play, it
+  asks for Google Play and does not open, so the release check and a
+  GitHub-release install cannot run it. The setting is per app and no API
+  reads it; the error names where to turn it off.
+- ``release --ship`` watches the Publish Android run its own dispatch
+  started. It took the newest run started in the last minute, which was the
+  check run whenever GitHub had not yet listed the upload, and went on to
+  Play's APK before the upload began.
 - ``ci-functions warm`` reads the bundle the emulators already built instead
   of building it again: a rebuild under running emulators made them reload
   every function, discarding the workers it had just started.

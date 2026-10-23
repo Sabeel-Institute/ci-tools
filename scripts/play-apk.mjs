@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,6 +20,11 @@ import { accessToken, fingerprint, playApi, readCredential } from './publish-pla
  * the Play publishing service account's JSON (~/keys/sabeel-play-publisher.json,
  * or the path in PLAY_KEY), never printed. `release --ship` attaches the APK
  * to the GitHub release, so a sideloaded install and Play's update each other.
+ *
+ * It refuses an APK carrying Play's installer check (Play Console's automatic
+ * protection, a per-app setting no API reads): installed by anything but Play,
+ * such an APK asks for Google Play and does not open, so neither the release
+ * check nor anyone installing from the GitHub release could run it.
  */
 
 /** The bytes of Play's universal APK for `code`, once Play signs it with `appSigningCertificate`. */
@@ -42,6 +48,11 @@ export async function universalApk(api, code, appSigningCertificate) {
   return bytes;
 }
 
+/** Whether the APK at `apk` carries Play's installer check, which automatic protection adds. */
+export function hasInstallerCheck(apk) {
+  return execFileSync('unzip', ['-p', apk, 'classes*.dex'], { maxBuffer: 1 << 30 }).includes('Lcom/pairip/licensecheck/');
+}
+
 async function main(args) {
   if (args.length !== 1 || !args[0].endsWith('.apk')) {
     console.error('usage: sabeel-ci play-apk <out.apk>');
@@ -54,6 +65,11 @@ async function main(args) {
   const api = playApi(await accessToken(readCredential(key)), app.android.package);
   const bytes = await universalApk(api, code, release.appSigningCertificate);
   writeFileSync(args[0], bytes);
+  if (hasInstallerCheck(args[0])) {
+    throw new Error(`Play adds its installer check (automatic protection) to ${app.android.package}'s APKs: installed by anything but\n`
+      + 'Play, the APK asks for Google Play and does not open. Turn automatic protection off (Play Console, the app,\n'
+      + `Protected with Play), then release a new version: Play built versionCode ${code}'s APKs with the check.`);
+  }
   console.log(`${args[0]}: Play's universal APK of ${app.version} (${code}), ${(bytes.length / 1048576).toFixed(1)} MB, `
     + `signed with ${release.appSigningCertificate}`);
   return 0;
