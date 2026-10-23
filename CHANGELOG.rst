@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- ``release --ship`` publishes the bundle CI built from the release commit,
+  as LMS 0.2.1 went out: it waits for the Android workflow's run (signed in
+  ``release-build``, cold-started five times) and refuses one that failed,
+  has Publish Android check that bundle and Play's permission before the
+  tag, and upload it after. No bundle is built or uploaded on the owner's
+  machine; the APKs on the GitHub release are still built there, checked
+  against the key on CI's bundle.
 - ``render-manual`` prints a phone/computer screenshot pair side by side,
   the phone on the left (46 mm and 116 mm), as Kanban's manual was: LMS's
   manual goes from 81 pages to 52, Kanban's stays at 34.
