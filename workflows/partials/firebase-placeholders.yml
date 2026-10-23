@@ -1,4 +1,0 @@
-# The app's Firebase app files, where it commits none: the pre-merge build's
-# demo ones, which the debug build only needs to compile against.
-- name: Placeholder Firebase app configuration
-  run: if [ ! -f app/google-services.json ]; then sabeel-ci ci-premerge prepare; fi

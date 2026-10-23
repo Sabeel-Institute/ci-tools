@@ -339,6 +339,45 @@ export const KEY_FILES = {
   'app/android/sentry.properties': 'sentry.properties',
 };
 
+/**
+ * The Firebase app config: what every installed app carries anyway, with
+ * OAuth client ids that are public by design. Every app commits all three
+ * (Expo reads app/, Gradle app/android/app/) and no secret writes them, so CI
+ * can never overwrite a committed file with another copy.
+ */
+export const FIREBASE_CONFIG_FILES = ['app/google-services.json', 'app/android/app/google-services.json', 'app/GoogleService-Info.plist'];
+
+/** Each Firebase app config file committed, the two Android copies alike, all naming this app and its project. */
+export function firebaseConfigProblems(root = '.') {
+  const tracked = execFileSync('git', ['ls-files', '--', ...FIREBASE_CONFIG_FILES], { cwd: root, encoding: 'utf8' }).split('\n');
+  const missing = FIREBASE_CONFIG_FILES.filter((path) => !tracked.includes(path));
+  if (missing.length) {
+    return missing.map((path) => `${path} is not committed. Every app commits its Firebase app config, client config each install carries, and no secret writes it`);
+  }
+  const read = (path) => readFileSync(resolve(root, path), 'utf8');
+  const app = JSON.parse(read('app/app.json')).expo;
+  // A missing default project is the Hosting check's to report.
+  const project = existsSync(resolve(root, '.firebaserc')) ? JSON.parse(read('.firebaserc')).projects?.default : undefined;
+  const found = [];
+  if (read('app/google-services.json') !== read('app/android/app/google-services.json')) {
+    found.push('app/android/app/google-services.json differs from app/google-services.json: Gradle reads the one, Expo the other. Copy one over the other');
+  }
+  const android = JSON.parse(read('app/google-services.json'));
+  if (project && android.project_info?.project_id !== project) {
+    found.push(`app/google-services.json is for Firebase project "${android.project_info?.project_id}", but .firebaserc names "${project}"`);
+  }
+  if (!android.client?.some((client) => client.client_info?.android_client_info?.package_name === app.android?.package)) {
+    found.push(`app/google-services.json has no Android app ${app.android?.package}, app.json's package`);
+  }
+  const plist = read('app/GoogleService-Info.plist');
+  const value = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1];
+  if (value('BUNDLE_ID') !== app.ios?.bundleIdentifier) {
+    found.push(`app/GoogleService-Info.plist is for ${value('BUNDLE_ID')}, app.json's bundle id is ${app.ios?.bundleIdentifier}`);
+  }
+  if (project && value('PROJECT_ID') !== project) found.push(`app/GoogleService-Info.plist is for Firebase project "${value('PROJECT_ID')}", but .firebaserc names "${project}"`);
+  return found;
+}
+
 export function problems(root = '.') {
   const found = [];
   const attempt = (check) => {
@@ -412,6 +451,7 @@ export function problems(root = '.') {
       : [`app/android/build.gradle ${version ? `takes the google-services Gradle plugin at ${version}` : 'names no com.google.gms:google-services plugin'}; every app builds with ${GOOGLE_SERVICES_PLUGIN}`];
   });
   attempt(() => hostingProblems(root));
+  attempt(() => firebaseConfigProblems(root));
   attempt(() => pushChannelProblems(root));
   attempt(() => vapidKeyProblems(root));
   attempt(() => {

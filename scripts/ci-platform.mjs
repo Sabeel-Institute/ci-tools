@@ -70,29 +70,13 @@ function prepare(android) {
   // Every app's build.gradle signs releases with the properties this names,
   // and fails closed without them (check-app holds it to that).
   appendFileSync(required('GITHUB_ENV'), `SABEEL_KEYSTORE_PROPERTIES=${properties}\n`);
-  if (process.env.ANDROID_GOOGLE_SERVICES_JSON) {
-    const googleServices = JSON.parse(process.env.ANDROID_GOOGLE_SERVICES_JSON);
-    const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
-    if (!googleServices.client?.some((client) => client.client_info?.android_client_info?.package_name === app.android.package)) {
-      throw new Error('Android Firebase configuration has the wrong package');
-    }
-    writePrivate('app/android/app/google-services.json', JSON.stringify(googleServices));
-  }
 }
 
-// The iOS build job: app/.env.local as for the web, the build machine's values,
-// and, for an app that does not commit it, the iOS Firebase config.
+// The iOS build job: app/.env.local as for the web, and the build machine's
+// values. The Firebase app config is committed (check-app holds it).
 function prepareIos() {
   prepare(false);
   writeBuildEnv();
-  if (process.env.GOOGLE_SERVICE_INFO_PLIST) {
-    const plist = Buffer.from(process.env.GOOGLE_SERVICE_INFO_PLIST, 'base64').toString('utf8');
-    const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
-    if (/<key>BUNDLE_ID<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)?.[1] !== app.ios.bundleIdentifier) {
-      throw new Error('iOS Firebase configuration has the wrong bundle id');
-    }
-    writePrivate('app/GoogleService-Info.plist', plist);
-  }
 }
 
 // The TestFlight job: the App Store Connect key where Apple's tools and

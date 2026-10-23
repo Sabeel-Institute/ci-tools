@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- Every app commits its Firebase app config: ``app/google-services.json``,
+  the identical ``app/android/app/google-services.json`` and
+  ``app/GoogleService-Info.plist``. ``check-app`` requires all three, naming
+  the app's package, bundle id and ``.firebaserc`` project. CI no longer
+  writes them from the ``ANDROID_GOOGLE_SERVICES_JSON`` and
+  ``GOOGLE_SERVICE_INFO_PLIST`` secrets (LMS's), so it cannot overwrite a
+  committed file, and the native flows' placeholder step is gone.
 - The Nightly workflow checks production each night, read-only: the live
   web app must be, byte for byte, the Web workflow's build of the commit its
   scripts are stamped with (``ci-hosting-smoke --live``), and every callable
