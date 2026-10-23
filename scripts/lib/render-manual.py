@@ -16,7 +16,7 @@ Every app's manual is rendered the same way, with Chrome headless:
   name app.json's version: `sabeel-ci release` moves it, then renders;
 - screenshots that differ between a phone and a computer come in pairs, a raw
   HTML block on contiguous lines (python-markdown passes it through), phone
-  first:
+  first, printed side by side in the text column, the phone on the left:
 
       <div class="pair">
       <figure class="ph"><img src="manual/img/NAME-phone.png" alt="..."><figcaption>On a phone</figcaption></figure>
@@ -101,17 +101,20 @@ html = f"""<!doctype html><html><head><meta charset="utf-8"><base href="{DOCS.as
   ul, ol {{ padding-left: 22px; }}
   li {{ margin-bottom: 5px; }}
 
-  /* ---- Screenshots: a lone image centred; a phone/desktop pair kept together,
-     the phone first, each with a quiet caption ---- */
+  /* ---- Screenshots: a lone image centred; a phone/desktop pair side by side,
+     the phone on the left, each with a quiet caption. 46 + 7 + 116 mm fits
+     the 180 mm column; stacked, the same pairs took half as many pages again.
+     ---- */
   img {{ display: block; width: 74mm; margin: 12px auto;
          border: 1px solid #DFD1C1; border-radius: 8px;
          page-break-inside: avoid; }}
-  .pair {{ page-break-inside: avoid; margin: 16px 0 20px; text-align: center; }}
-  .pair figure {{ margin: 6px auto 10px; }}
+  .pair {{ display: flex; gap: 7mm; align-items: flex-start; justify-content: center;
+           page-break-inside: avoid; margin: 16px 0 20px; }}
+  .pair figure {{ margin: 0; text-align: center; }}
   .pair figcaption {{ font-size: 9.5pt; color: #6A5748; font-style: italic;
                       letter-spacing: 0.03em; margin-top: 4px; }}
-  .pair figure.ph img {{ width: 56mm; margin: 0 auto; }}
-  .pair figure.wd img {{ width: 165mm; margin: 0 auto; }}
+  .pair figure.ph img {{ width: 46mm; margin: 0; }}
+  .pair figure.wd img {{ width: 116mm; margin: 0; }}
 
   table {{ border-collapse: collapse; width: 100%; font-size: 11pt;
            page-break-inside: avoid; }}

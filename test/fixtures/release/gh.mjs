@@ -1,6 +1,10 @@
 // GitHub's CLI: records each call, with what a release would upload and the
-// pull request's body, and answers as GitHub would.
-import { existsSync, readFileSync } from 'node:fs';
+// pull request's body, and answers as GitHub would. The Android build of the
+// commit is run 41 (ANDROID_RUNS replaces its list); each Publish Android
+// dispatch is the next run from 51; `run watch` fails for the runs FAIL_WATCH
+// names.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { log } from './log.mjs';
 
 const args = process.argv.slice(2);
@@ -13,5 +17,24 @@ if (notes > 0) {
   extra.assets = args.slice(notes + 2).map((path) => ({ path, exists: existsSync(path) }));
 }
 log('gh', extra);
+const value = (flag) => args[args.indexOf(flag) + 1];
+const dispatches = join(dirname(process.env.RELEASE_LOG), 'publish-dispatches');
+const dispatched = () => (existsSync(dispatches) ? Number(readFileSync(dispatches, 'utf8')) : 0);
+
 if (args[0] === 'pr' && args[1] === 'create') console.log('https://github.com/Sabeel-Institute/example/pull/7');
-if (args[0] === 'run' && args[1] === 'list') console.log(JSON.stringify([{ databaseId: 99 }]));
+if (args[0] === 'run' && args[1] === 'list') {
+  const workflow = value('--workflow');
+  if (workflow === 'android.yml') {
+    console.log(process.env.ANDROID_RUNS ?? JSON.stringify([{ databaseId: 41, status: 'completed', conclusion: 'success', event: 'push' }]));
+  } else if (workflow === 'android-publish.yml') {
+    console.log(JSON.stringify([{ databaseId: 50 + dispatched(), createdAt: new Date().toISOString() }]));
+  } else {
+    console.log(JSON.stringify([{ databaseId: 99 }]));
+  }
+}
+if (args[0] === 'run' && args[1] === 'download' && !process.env.NO_BUNDLE) {
+  mkdirSync(value('--dir'), { recursive: true });
+  writeFileSync(join(value('--dir'), 'app-release.aab'), 'bundle');
+}
+if (args[0] === 'workflow' && args[1] === 'run' && args[2] === 'android-publish.yml') writeFileSync(dispatches, String(dispatched() + 1));
+if (args[0] === 'run' && args[1] === 'watch' && (process.env.FAIL_WATCH ?? '').split(',').includes(args[2])) process.exit(1);

@@ -36,7 +36,7 @@ describe('check-ios-config', () => {
 
   it.each([
     ['an app not built for iOS', ({ edit }) => edit((e) => { e.platforms = ['android', 'web']; }), /platforms does not include "ios"/],
-    ['no plist', ({ root }) => rmSync(join(root, 'app/GoogleService-Info.plist')), /GoogleService-Info\.plist is missing[\s\S]*GOOGLE_SERVICE_INFO_PLIST/],
+    ['no plist', ({ root }) => rmSync(join(root, 'app/GoogleService-Info.plist')), /GoogleService-Info\.plist is missing[\s\S]*and commit it: every app does, and no secret writes it/],
     ['another bundle id in the plist', ({ put }) => put('app/GoogleService-Info.plist', plist({ BUNDLE_ID: 'com.example.other', PROJECT_ID: PROJECT, REVERSED_CLIENT_ID: 'x' })), /bundle id mismatch/],
     ['a plist from a project .firebaserc does not name', ({ put }) => {
       put('app/GoogleService-Info.plist', plist({ BUNDLE_ID, PROJECT_ID: 'legacy-project', REVERSED_CLIENT_ID: 'x' }));

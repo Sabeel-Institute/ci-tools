@@ -48,7 +48,6 @@ jobs:
         run: sabeel-ci ci-android-sdk
       - name: Install Firebase CLI
         run: npm install --global firebase-tools@^15
-      # ci-tools: firebase-placeholders
       # ci-tools: ffmpeg if ci.ffmpeg
       # ci-tools: media-store if ci.mediaStore
       # ci-tools: seed-browser if native.seedWeb
@@ -83,7 +82,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      # ci-tools: firebase-placeholders
       - name: Install dependencies
         run: npm ci
       - name: Install Firebase CLI

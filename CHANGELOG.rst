@@ -11,6 +11,30 @@ Unreleased
   backup, and ``lib/android/NetworkClient.kt``, the connect timeout and HTTP/2
   ping Kanban's client had, with uploads (Cloud Storage requests and PUTs)
   exempt from the ping, installed before React Native starts.
+- Every app commits its Firebase app config: ``app/google-services.json``,
+  the identical ``app/android/app/google-services.json`` and
+  ``app/GoogleService-Info.plist``. ``check-app`` requires all three, naming
+  the app's package, bundle id and ``.firebaserc`` project. CI no longer
+  writes them from the ``ANDROID_GOOGLE_SERVICES_JSON`` and
+  ``GOOGLE_SERVICE_INFO_PLIST`` secrets (LMS's), so it cannot overwrite a
+  committed file, and the native flows' placeholder step is gone.
+- The Nightly workflow checks production each night, read-only: the live
+  web app must be, byte for byte, the Web workflow's build of the commit its
+  scripts are stamped with (``ci-hosting-smoke --live``), and every callable
+  must answer (``ci-functions health``). A failure opens or updates one
+  ``nightly`` issue (``nightly-issue``); a night that passes closes it. The
+  Web workflow keeps its builds 90 days for it. The push credentials are not
+  checked: that needs production credentials in a scheduled job.
+- ``release --ship`` publishes the bundle CI built from the release commit,
+  as LMS 0.2.1 went out: it waits for the Android workflow's run (signed in
+  ``release-build``, cold-started five times) and refuses one that failed,
+  has Publish Android check that bundle and Play's permission before the
+  tag, and upload it after. No bundle is built or uploaded on the owner's
+  machine; the APKs on the GitHub release are still built there, checked
+  against the key on CI's bundle.
+- ``render-manual`` prints a phone/computer screenshot pair side by side,
+  the phone on the left (46 mm and 116 mm), as Kanban's manual was: LMS's
+  manual goes from 81 pages to 52, Kanban's stays at 34.
 - ``native-e2e`` calls every callable on the emulators once after the seed
   (``ci-functions warm``), so a flow meets functions whose workers are up. A
   first call on a busy CI Mac took longer than LMS's iPhone flow waits.
