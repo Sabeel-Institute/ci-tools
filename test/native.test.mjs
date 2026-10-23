@@ -29,6 +29,12 @@ function android(gradle) {
 describe('the native flows', () => {
   const workflow = renderAll(full).get('native.yml');
 
+  it('warm the emulated callables from the bundle the emulators run, never a rebuild that reloads them', () => {
+    const script = readFileSync(new URL('../scripts/ci-functions.mjs', import.meta.url), 'utf8');
+    const warm = script.slice(script.indexOf('async function warm('), script.indexOf('\n}\n', script.indexOf('async function warm(')));
+    expect(warm).toContain('loadEndpoints({ build: false })');
+  });
+
   it('call every emulated callable once after the seed, so no flow waits on a cold function', () => {
     const at = (text) => runner.indexOf(text);
     expect(at('ci-functions.mjs" warm')).toBeGreaterThan(at('node "$SEED"'));

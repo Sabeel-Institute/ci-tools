@@ -90,8 +90,13 @@ function project() {
   return id;
 }
 
-function loadEndpoints() {
-  run('npm', ['run', 'build'], { cwd: 'functions' });
+/**
+ * The bundle's endpoints. `build` false reads the bundle the emulators already
+ * built: rebuilding it under running emulators makes them reload every
+ * function, which throws away the workers `warm` has just started.
+ */
+function loadEndpoints({ build = true } = {}) {
+  if (build) run('npm', ['run', 'build'], { cwd: 'functions' });
   const listed = output(process.execPath, ['-e',
     'const m = require("./lib/index.js"); console.log(JSON.stringify(Object.fromEntries(Object.entries(m)'
     + '.filter(([, v]) => v && v.__endpoint).map(([n, v]) => [n, { __endpoint: v.__endpoint }]))))'],
@@ -174,14 +179,15 @@ const production = (id) => ({ name, region }) => `https://${region}-${id}.cloudf
  * busy CI Mac that took longer than a flow waits: LMS's iPhone run sat on
  * "Sending the link…" for over 30 s on 2026-10-22. A worker stays up once
  * started, so the flows meet functions that answer at once. Each is allowed
- * the emulator's own 120 s to load (FUNCTIONS_DISCOVERY_TIMEOUT).
+ * the emulator's own 120 s to load (FUNCTIONS_DISCOVERY_TIMEOUT). It reads the
+ * bundle the emulators run rather than building it again (loadEndpoints).
  */
 async function warm() {
   const settings = config();
   const port = ports(settings).functions;
   const project = emulatorProject(settings);
   const started = Date.now();
-  const problems = await probeCallables(loadEndpoints(),
+  const problems = await probeCallables(loadEndpoints({ build: false }),
     ({ name, region }) => `http://127.0.0.1:${port}/${project}/${region}/${name}`, { attempts: 2, timeout: 120_000 });
   if (problems.length) throw new Error(`The emulated functions did not all start:\n- ${problems.join('\n- ')}`);
   console.log(`Warmed in ${Math.round((Date.now() - started) / 1000)} s`);
