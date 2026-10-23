@@ -1,7 +1,7 @@
 // ci-tools' sabeel-ci as release.mjs sees it. deploy-notes reads the deploy log
 // as the build branch's command does, and render-manual checks and renders as
 // the real one does; the others record their call, and fail when the test asks.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { log } from './log.mjs';
 
 const [command, ...args] = process.argv.slice(2);
@@ -30,12 +30,9 @@ if (command === 'deploy-notes' && process.env.NO_DEPLOY_NOTES) {
     process.exit(1);
   }
   writeFileSync('docs/USER-MANUAL.pdf', `PDF ${version}\n`);
-} else if (command === 'build-aab') {
-  mkdirSync('app/android/app/build/outputs/bundle/release', { recursive: true });
-  writeFileSync('app/android/app/build/outputs/bundle/release/app-release.aab', 'bundle');
+} else if (command === 'play-apk') {
+  if (process.env.FAIL_PLAY_APK) process.exit(1);
+  writeFileSync(args[0], 'PK apk');
 } else if (command === 'check-release' && process.env.FAIL_CHECK_RELEASE) {
-  process.exit(1);
-} else if (command === 'publish-play' && process.env.FAIL_PUBLISH === args[0]) {
-  console.error('Play said no');
   process.exit(1);
 }

@@ -1,12 +1,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config } from '../lib/config.mjs';
 import { androidIdentity, buildNumber, versionCode, versionProblems } from '../lib/version.mjs';
-import { fingerprint } from './publish-play.mjs';
-import { nativeBuildEnv } from './lib/sentry.mjs';
 
 /**
  * Release an app, the same way for every app, in two steps, because main takes
@@ -26,22 +23,28 @@ import { nativeBuildEnv } from './lib/sentry.mjs';
  * --dry-run does all of it but the commit, shows the change and leaves nothing
  * behind.
  *
- * Step 2 releases the merged commit:
+ * Step 2 releases the merged commit, without building or signing anything on
+ * this machine:
  *
  *  - Play gets the bundle CI built from that commit: the Android workflow's,
  *    signed in its release-build environment, its gates passed (`build-aab`)
  *    and cold-started five times on an emulator. Step 2 waits for that run if
  *    it is still going and refuses one that failed, then has Publish Android
- *    check the bundle and Play's permission without uploading;
- *  - the APKs, arm64-v8a and universal (build.gradle's ABI splits), are built
- *    on this machine, signed with the key on CI's bundle;
- *  - the universal APK cold-started on an emulator (`sabeel-ci check-release`);
- *  - the GitHub release v<version> at that commit, with the APKs and the
- *    manual, titled and described by the version's deploy-log entry. Creating
- *    it creates the tag, which only the owner may;
- *  - last, because it reaches every tester's phone by itself, Publish Android
- *    uploads CI's bundle to Play internal testing. If that fails the GitHub
- *    release stands, and Publish Android is run again alone.
+ *    check the bundle and Play's permission, and upload it to Play internal
+ *    testing;
+ *  - the APK on the GitHub release is the universal one Play generated from
+ *    that bundle, signed exactly as Play installs it (`sabeel-ci play-apk`,
+ *    refusing any signer but release.appSigningCertificate), so a sideloaded
+ *    install and Play's update each other. It is cold-started on an emulator
+ *    (`sabeel-ci check-release`);
+ *  - last, the GitHub release v<version> at that commit, with the APK and the
+ *    manual, titled and described by the version's deploy-log entry: made as
+ *    a draft, then published, which creates the tag, which only the owner
+ *    may. The tag comes last because the APK exists only once Play has the
+ *    bundle: a tagged release therefore always has its notes, its APK and its
+ *    manual, and names a version testers have. Until then a failure leaves
+ *    no tag, and shipping again resumes: Publish Android does not upload a
+ *    bundle Play already holds, and a draft left behind is replaced.
  *
  * Then it prints the runs that release the same commit to the web (Deploy Web,
  * with this commit's Web build) and to iPhones (the iOS workflow on the tag).
@@ -59,8 +62,6 @@ const MANUAL_PDF = 'docs/USER-MANUAL.pdf';
 const MANUAL_LINE = /^(\*For app version )(\S+)( · )/m;
 const DEPLOY_LOG = 'docs/PHASE_STATUS.md';
 const DEPLOY_LOG_SECTION = '## Deploy log';
-const APKS = 'app/android/app/build/outputs/apk/release';
-const ABIS = ['arm64-v8a', 'universal'];
 const USAGE = `usage: sabeel-ci release <X.Y.Z> [--notes <entry.md>] [--dry-run]   open the release pull request
        sabeel-ci release --ship                                      on main, once the owner has merged it`;
 
@@ -243,20 +244,6 @@ function prepare(version, notesPath, dryRun) {
   }
 }
 
-/** apksigner on PATH, else from the newest build-tools of the SDK that ANDROID_HOME names. */
-function apksigner() {
-  try {
-    execFileSync('apksigner', ['--version'], { stdio: 'ignore' });
-    return 'apksigner';
-  } catch {
-    const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-    const tools = sdk && existsSync(join(sdk, 'build-tools')) ? readdirSync(join(sdk, 'build-tools')) : [];
-    const newest = tools.sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).find((version) => existsSync(join(sdk, 'build-tools', version, 'apksigner')));
-    if (!newest) throw new Error('apksigner not found: put it on PATH, or set ANDROID_HOME to the Android SDK.');
-    return join(sdk, 'build-tools', newest, 'apksigner');
-  }
-}
-
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** `gh run watch` on a run until it ends; false when it failed. */
@@ -297,13 +284,14 @@ function androidBuild(repository, sha) {
     + `    gh workflow run android.yml --repo ${repository} --ref main`);
 }
 
-/** CI's bundle from Android run `id`, downloaded into `out`. */
-function downloadBundle(repository, id, sha, out) {
-  const into = join(out, 'android');
-  run('gh', ['run', 'download', String(id), '--repo', repository, '--name', `android-aab-${sha}`, '--dir', into]);
-  const bundle = join(into, 'app-release.aab');
-  if (!existsSync(bundle)) throw new Error(`Android run ${id} kept no app-release.aab for ${sha.slice(0, 7)}.`);
-  return bundle;
+/** Whether v<version> is a draft GitHub release, as a failed ship leaves one; a draft has no tag. */
+function draftRelease(repository, version) {
+  try {
+    return JSON.parse(run('gh', ['release', 'view', `v${version}`, '--repo', repository, '--json', 'isDraft'],
+      { stdio: ['ignore', 'pipe', 'ignore'] })).isDraft === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -336,7 +324,7 @@ function webBuild(repository, sha) {
   }
 }
 
-/** Step 2: release the merged commit: CI's bundle to Play, APKs built here, checked, tagged. */
+/** Step 2: release the merged commit: CI's bundle to Play, Play's APK checked, then the tag. */
 function ship() {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
   if (branch !== 'main') throw new Error(`Ship from main, not ${branch}: once the owner has merged the release pull request,\n    git switch main && git pull --ff-only`);
@@ -350,7 +338,7 @@ function ship() {
   const app = JSON.parse(readFileSync('app/app.json', 'utf8')).expo;
   const { version, slug } = app;
   const problems = versionedFileProblems();
-  if (!slug) problems.push("app/app.json has no expo.slug, which names the APKs");
+  if (!slug) problems.push("app/app.json has no expo.slug, which names the APK");
   if (problems.length) throw new Error(`Not releasing v${version}:\n${list(problems)}`);
   const released = releasedVersions();
   if (released.includes(version)) {
@@ -366,39 +354,41 @@ function ship() {
   const inherit = { stdio: 'inherit' };
   const out = mkdtempSync(join(tmpdir(), `release-v${version}-`));
   const android = androidBuild(repository, sha);
-  const bundle = downloadBundle(repository, android, sha, out);
-  const signer = fingerprint(/SHA256:\s*([0-9A-Fa-f:]+)/.exec(run('keytool', ['-printcert', '-jarfile', bundle]))?.[1] ?? '');
   if (!publishAndroid(repository, android, false)) {
     throw new Error(`Publish Android's check of run ${android}'s bundle failed (above); nothing was tagged or uploaded.`);
   }
-  sabeelCi(['build-info'], inherit);
-  show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android', env: nativeBuildEnv(config()) });
-  const signing = apksigner();
-  const assets = ABIS.map((abi) => {
-    const apk = join(APKS, `app-${abi}-release.apk`);
-    if (!existsSync(apk)) throw new Error(`Gradle made no ${apk}: build.gradle's ABI splits (arm64-v8a, universalApk true) are missing.`);
-    const certificates = run(signing, ['verify', '--print-certs', apk]);
-    const subject = /Signer #1 certificate DN: (.+)/.exec(certificates)?.[1] ?? '';
-    const digest = /Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+)/.exec(certificates)?.[1] ?? '';
-    if (/CN=Android Debug/i.test(subject) || !signer || fingerprint(digest) !== signer) {
-      throw new Error(`${apk} is not signed with the bundle's key (${subject || 'unsigned'}). Restore the app's release keystore\n    and its properties (docs/SECRETS.md), then ship again.`);
-    }
-    const asset = join(out, `${slug}-${abi}.apk`);
-    copyFileSync(apk, asset);
-    return asset;
-  });
-  sabeelCi(['check-release', join(APKS, 'app-universal-release.apk'), '--commit', sha, '--out', join(out, 'release-check')], inherit);
+  const rerun = 'Nothing was tagged. Once that is fixed, ship again: npx sabeel-ci release --ship\n'
+    + '    (Publish Android finds the bundle Play already holds and does not upload it twice)';
+  if (!publishAndroid(repository, android, true)) throw new Error(`Play internal testing did not take run ${android}'s bundle (above). ${rerun}`);
+  const onPlay = `v${version} is on Play internal testing, but`;
+  const apk = join(out, `${slug}-universal.apk`);
+  try {
+    sabeelCi(['play-apk', apk], inherit);
+    sabeelCi(['check-release', apk, '--commit', sha, '--out', join(out, 'release-check')], inherit);
+  } catch (error) {
+    throw new Error(`${onPlay} ${error.message}\n${rerun}`);
+  }
 
+  // A draft holds the notes, the APK and the manual; publishing it creates the
+  // tag, so a tagged release always has all three. A draft a failed ship left
+  // behind is replaced.
+  if (draftRelease(repository, version)) run('gh', ['release', 'delete', `v${version}`, '--repo', repository, '--yes']);
   const notesFile = join(out, 'notes.md');
   writeFileSync(notesFile, notes + '\n');
-  show('gh', ['release', 'create', `v${version}`, '--repo', repository, '--target', sha, '--title', title, '--notes-file', notesFile, ...assets, MANUAL_PDF]);
-  if (!publishAndroid(repository, android, true)) {
-    throw new Error(`v${version}'s GitHub release stands, but Play internal testing did not take it (above).\n`
-      + `Once that is fixed, publish the same bundle alone:\n    gh workflow run android-publish.yml --repo ${repository} --ref main -f build_run_id=${android} -f publish=true`);
+  try {
+    show('gh', ['release', 'create', `v${version}`, '--repo', repository, '--draft', '--target', sha, '--title', title, '--notes-file', notesFile, apk, MANUAL_PDF]);
+  } catch {
+    throw new Error(`${onPlay} its GitHub release could not be made (above). ${rerun}`);
+  }
+  try {
+    show('gh', ['release', 'edit', `v${version}`, '--repo', repository, '--draft=false']);
+  } catch {
+    throw new Error(`${onPlay} its draft GitHub release, which holds the notes, Play's APK and the manual, was not published (above).\n`
+      + `Publishing it creates the tag: gh release edit v${version} --repo ${repository} --draft=false`);
   }
   const web = webBuild(repository, sha);
-  console.log(`\nv${version} is released at ${sha.slice(0, 7)}: the GitHub release, and Play internal testing with CI's bundle (Android run ${android}).`
-    + ` The release check's screens are in ${join(out, 'release-check')}.\nThe same commit to the web and to iPhones:\n`
+  console.log(`\nv${version} is released at ${sha.slice(0, 7)}: Play internal testing with CI's bundle (Android run ${android}), and the GitHub release`
+    + ` with the APK Play signs. The release check's screens are in ${join(out, 'release-check')}.\nThe same commit to the web and to iPhones:\n`
     + `  gh workflow run web-deploy.yml --repo ${repository} -f build_run_id=${web ?? `<the Web run for ${sha.slice(0, 7)}, once it has passed>`} -f deploy=true\n`
     + `  gh workflow run ios.yml --repo ${repository} --ref v${version} -f testflight=true`);
 }

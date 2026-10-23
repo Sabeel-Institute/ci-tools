@@ -31,7 +31,7 @@ const ENTRY = '### 2026-10-22 — Faster sign-in — v0.2.1\n\nSign-in takes one
 /**
  * An app repository with its origin (a bare repository standing in for
  * GitHub), released at 0.2.0 and tagged, and stand-ins for ci-tools' other
- * commands, gh, Gradle, keytool and apksigner, each recording its calls.
+ * commands and gh, each recording its calls.
  * sabeel-ci's render-manual checks the manual's version line and writes the PDF.
  */
 function fixture() {
@@ -68,7 +68,6 @@ function fixture() {
   put('.gitignore', 'app/android/app/build/\n');
   put('app/app.json', app('0.2.0'));
   put('app/android/app/build.gradle', '        versionCode computedVersionCode\n        versionName expoVersion\n');
-  put('app/android/gradlew', '#!/usr/bin/env node\n' + stand('gradlew.mjs'), 0o755);
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.0 · October 2026*\n\nHow to use it.\n');
   put('docs/USER-MANUAL.pdf', 'PDF 0.2.0\n');
   put('docs/PHASE_STATUS.md', LOG);
@@ -76,7 +75,7 @@ function fixture() {
   git('commit', '--quiet', '-m', 'v0.2.0');
   git('tag', 'v0.2.0');
   git('push', '--quiet', 'origin', 'main', 'v0.2.0');
-  for (const tool of ['gh', 'keytool', 'apksigner']) outside(`bin/${tool}`, '#!/usr/bin/env node\n' + stand(`${tool}.mjs`));
+  outside('bin/gh', '#!/usr/bin/env node\n' + stand('gh.mjs'));
   outside('tools/bin/sabeel-ci.mjs', stand('sabeel-ci.mjs'));
   outside('entry.md', ENTRY);
   const run = (args, env = {}) => spawnSync(process.execPath, [script, ...args], {
@@ -204,8 +203,18 @@ describe('release, step 1: the release pull request', () => {
   });
 });
 
+const REPO = '--repo Sabeel-Institute/example';
+/** Publish Android dispatched with `flag`, found as run `id`, and watched. */
+const publishAndroid = (flag, id) => [
+  `gh workflow run android-publish.yml ${REPO} --ref main -f build_run_id=41 -f publish=${flag}`,
+  `gh run list ${REPO} --workflow android-publish.yml --event workflow_dispatch --json databaseId,createdAt --limit 5`,
+  `gh run watch ${id} ${REPO} --exit-status --interval 30`,
+];
+/** Each recorded call, with ship's scratch directory as <out>. */
+const shipped = (test) => test.said().map((call) => call.replace(/ \S*\/release-v0\.2\.1-\w+\//g, ' <out>/'));
+
 describe('release, step 2: --ship', () => {
-  it('builds, checks, tags and publishes the merged commit, in that order', () => {
+  it('publishes CI\'s bundle, checks the APK Play signs, then tags, in that order', () => {
     const test = fixture();
     const sha = test.merged('0.2.1');
     // A tag left in this clone that origin does not have is not a release.
@@ -214,42 +223,42 @@ describe('release, step 2: --ship', () => {
     const result = test.run(['--ship']);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    const apks = 'app/android/app/build/outputs/apk/release';
-    const repo = '--repo Sabeel-Institute/example';
-    const publish = (flag, run) => [
-      `gh workflow run android-publish.yml ${repo} --ref main -f build_run_id=41 -f publish=${flag}`,
-      `gh run list ${repo} --workflow android-publish.yml --event workflow_dispatch --json databaseId,createdAt --limit 5`,
-      `gh run watch ${run} ${repo} --exit-status --interval 30`,
-    ];
-    expect(test.said().map((call) => call.replace(/ \S*\/release-v0\.2\.1-\w+\//g, ' <out>/'))).toEqual([
+    expect(shipped(test)).toEqual([
       'sabeel-ci deploy-notes 0.2.1 --title',
       'sabeel-ci deploy-notes 0.2.1',
-      `gh run list ${repo} --workflow android.yml --branch main --commit ${sha} --json databaseId,status,conclusion,event --limit 5`,
-      `gh run download 41 ${repo} --name android-aab-${sha} --dir <out>/android`,
-      'keytool -printcert -jarfile <out>/android/app-release.aab',
-      ...publish(false, 51),
-      'sabeel-ci build-info',
-      'gradlew assembleRelease --no-daemon',
-      `apksigner verify --print-certs ${apks}/app-arm64-v8a-release.apk`,
-      `apksigner verify --print-certs ${apks}/app-universal-release.apk`,
-      `sabeel-ci check-release ${apks}/app-universal-release.apk --commit ${sha} --out <out>/release-check`,
-      `gh release create v0.2.1 ${repo} --target ${sha} --title v0.2.1 — Faster sign-in --notes-file <out>/notes.md <out>/sabeel-example-arm64-v8a.apk <out>/sabeel-example-universal.apk docs/USER-MANUAL.pdf`,
-      ...publish(true, 52),
-      `gh run list ${repo} --workflow web.yml --commit ${sha} --status success --json databaseId --limit 1`,
+      `gh run list ${REPO} --workflow android.yml --branch main --commit ${sha} --json databaseId,status,conclusion,event --limit 5`,
+      ...publishAndroid(false, 51),
+      ...publishAndroid(true, 52),
+      'sabeel-ci play-apk <out>/sabeel-example-universal.apk',
+      `sabeel-ci check-release <out>/sabeel-example-universal.apk --commit ${sha} --out <out>/release-check`,
+      `gh release view v0.2.1 ${REPO} --json isDraft`,
+      `gh release create v0.2.1 ${REPO} --draft --target ${sha} --title v0.2.1 — Faster sign-in --notes-file <out>/notes.md <out>/sabeel-example-universal.apk docs/USER-MANUAL.pdf`,
+      `gh release edit v0.2.1 ${REPO} --draft=false`,
+      `gh run list ${REPO} --workflow web.yml --commit ${sha} --status success --json databaseId --limit 1`,
     ]);
-    // Nothing on this machine builds or uploads a bundle: Play gets CI's.
-    expect(test.said().some((call) => /build-aab|publish-play/.test(call))).toBe(false);
-    const release = test.calls().find((call) => call.args[0] === 'release');
+    // Nothing on this machine builds, signs or uploads anything: Play gets CI's bundle, and the APK is Play's.
+    expect(test.said().some((call) => /build-aab|build-info|publish-play|gradlew|apksigner|keytool/.test(call))).toBe(false);
+    const release = test.calls().find((call) => call.args[0] === 'release' && call.args[1] === 'create');
     expect(release.notes).toBe('Sign-in takes one tap.\n');
+    expect(release.assets.map((asset) => asset.path.replace(/^\S*\/release-v0\.2\.1-\w+\//, '<out>/'))).toEqual(['<out>/sabeel-example-universal.apk', 'docs/USER-MANUAL.pdf']);
     expect(release.assets.every((asset) => asset.exists)).toBe(true);
-    expect(result.stdout).toContain("Play internal testing with CI's bundle (Android run 41)");
+    expect(result.stdout).toContain("Play internal testing with CI's bundle (Android run 41), and the GitHub release with the APK Play signs");
     expect(result.stdout).toContain('gh workflow run web-deploy.yml --repo Sabeel-Institute/example -f build_run_id=99 -f deploy=true');
     expect(result.stdout).toContain('gh workflow run ios.yml --repo Sabeel-Institute/example --ref v0.2.1 -f testflight=true');
-    // Nothing is pushed: the tag is GitHub's, made by the release.
+    // Nothing is pushed: the tag is GitHub's, made by publishing the release.
     expect(test.remote('show-ref')).toBe(refs);
   });
 
-  it('waits for the Android build still going, then ships its bundle', () => {
+  it('replaces a draft release a failed ship left behind', () => {
+    const test = fixture();
+    test.merged('0.2.1');
+    const result = test.run(['--ship'], { DRAFT_RELEASE: '1' });
+    expect(result.status).toBe(0);
+    const said = shipped(test);
+    expect(said.indexOf(`gh release delete v0.2.1 ${REPO} --yes`)).toBe(said.findIndex((call) => call.startsWith('gh release create')) - 1);
+  });
+
+  it('waits for the Android build still going, then publishes its bundle', () => {
     const test = fixture();
     test.merged('0.2.1');
     const result = test.run(['--ship'], { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'in_progress', conclusion: '', event: 'push' }]) });
@@ -258,7 +267,7 @@ describe('release, step 2: --ship', () => {
     expect(result.stdout).toContain('Waiting for the Android build of');
     const said = test.said();
     expect(said.indexOf('gh run watch 41 --repo Sabeel-Institute/example --exit-status --interval 30'))
-      .toBeLessThan(said.findIndex((call) => call.startsWith('gh run download 41')));
+      .toBeLessThan(said.findIndex((call) => call.startsWith('gh workflow run android-publish.yml')));
   });
 
   it('ships only a clean main that origin has', () => {
@@ -296,27 +305,38 @@ describe('release, step 2: --ship', () => {
     ['the Android build still going', { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'in_progress', conclusion: '', event: 'push' }]), FAIL_WATCH: '41' },
       /did not pass \(run 41\)/],
     ["Publish Android's check", { FAIL_WATCH: '51' }, /Publish Android's check of run 41's bundle failed \(above\); nothing was tagged or uploaded/],
-    ['the ABI splits', { NO_SPLITS: '1' }, /Gradle made no app\/android\/app\/build\/outputs\/apk\/release\/app-arm64-v8a-release\.apk/],
-    ['another key on the APKs', { FAKE_APK_DIGEST: 'cd'.repeat(32) }, /app-arm64-v8a-release\.apk is not signed with the bundle's key \(CN=Sabeel Institute\)/],
-    ['the debug key on the APKs', { FAKE_APK_DN: 'CN=Android Debug, O=Android' }, /is not signed with the bundle's key \(CN=Android Debug, O=Android\)/],
-    ['the emulator check', { FAIL_CHECK_RELEASE: '1' }, /sabeel-ci check-release .* stopped the release/],
-  ])('stops before the tag when %s fail', (_, env, message) => {
+  ])('stops before Play when %s fails', (_, env, message) => {
     const test = fixture();
     test.merged('0.2.1');
     const result = test.run(['--ship'], env);
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(message);
-    expect(test.said().filter((call) => call.startsWith('gh release') || call.endsWith('publish=true'))).toEqual([]);
+    expect(test.said().filter((call) => call.endsWith('publish=true') || call.startsWith('gh release'))).toEqual([]);
   });
 
-  it('keeps the GitHub release when Play fails, and says how to finish', () => {
+  it.each([
+    ['the Play upload', { FAIL_WATCH: '52' }, /^Play internal testing did not take run 41's bundle \(above\)\. Nothing was tagged/m, 'gh run watch 52'],
+    ["Play's APK", { FAIL_PLAY_APK: '1' }, /^v0\.2\.1 is on Play internal testing, but sabeel-ci play-apk .* stopped the release[\s\S]*Nothing was tagged/m, 'sabeel-ci play-apk'],
+    ['the cold start of Play\'s APK', { FAIL_CHECK_RELEASE: '1' }, /^v0\.2\.1 is on Play internal testing, but sabeel-ci check-release .* stopped the release[\s\S]*Nothing was tagged/m, 'sabeel-ci check-release'],
+    ['the draft release', { FAIL_RELEASE: 'create' }, /^v0\.2\.1 is on Play internal testing, but its GitHub release could not be made \(above\)\. Nothing was tagged/m, 'gh release create'],
+  ])('leaves no tag when %s fails, and says to ship again', (_, env, message, last) => {
     const test = fixture();
     test.merged('0.2.1');
-    const result = test.run(['--ship'], { FAIL_WATCH: '52' });
+    const result = test.run(['--ship'], env);
     expect(result.status).toBe(1);
-    expect(test.said().some((call) => call.startsWith('gh release create v0.2.1'))).toBe(true);
-    expect(result.stderr).toContain("v0.2.1's GitHub release stands, but Play internal testing did not take it (above).");
-    expect(result.stderr).toContain('gh workflow run android-publish.yml --repo Sabeel-Institute/example --ref main -f build_run_id=41 -f publish=true');
+    expect(result.stderr).toMatch(message);
+    expect(result.stderr).toContain('ship again: npx sabeel-ci release --ship\n    (Publish Android finds the bundle Play already holds and does not upload it twice)');
+    expect(shipped(test).at(-1)).toMatch(new RegExp(`^${last}`));
+    expect(test.said().some((call) => call.startsWith('gh release edit'))).toBe(false);
+  });
+
+  it('says how to publish the draft when publishing it fails, the one step after which the tag exists', () => {
+    const test = fixture();
+    test.merged('0.2.1');
+    const result = test.run(['--ship'], { FAIL_RELEASE: 'edit' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('v0.2.1 is on Play internal testing, but its draft GitHub release, which holds the notes, Play\'s APK and the manual, was not published (above).');
+    expect(result.stderr).toContain(`Publishing it creates the tag: gh release edit v0.2.1 ${REPO} --draft=false`);
   });
 
   it("releases only in the Institute's own repositories", () => {

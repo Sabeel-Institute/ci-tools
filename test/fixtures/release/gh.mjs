@@ -2,7 +2,8 @@
 // pull request's body, and answers as GitHub would. The Android build of the
 // commit is run 41 (ANDROID_RUNS replaces its list); each Publish Android
 // dispatch is the next run from 51; `run watch` fails for the runs FAIL_WATCH
-// names.
+// names. v<version> is a draft release when DRAFT_RELEASE is set, and none
+// otherwise; FAIL_RELEASE names the `release` subcommand that fails.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { log } from './log.mjs';
@@ -38,3 +39,8 @@ if (args[0] === 'run' && args[1] === 'download' && !process.env.NO_BUNDLE) {
 }
 if (args[0] === 'workflow' && args[1] === 'run' && args[2] === 'android-publish.yml') writeFileSync(dispatches, String(dispatched() + 1));
 if (args[0] === 'run' && args[1] === 'watch' && (process.env.FAIL_WATCH ?? '').split(',').includes(args[2])) process.exit(1);
+if (args[0] === 'release' && args[1] === process.env.FAIL_RELEASE) process.exit(1);
+if (args[0] === 'release' && args[1] === 'view') {
+  if (!process.env.DRAFT_RELEASE) process.exit(1);
+  console.log(JSON.stringify({ isDraft: true }));
+}

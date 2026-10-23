@@ -4,6 +4,17 @@ Changelog
 Unreleased
 ----------
 
+- The APK on a GitHub release is the universal one Google Play generated
+  from the published bundle, signed exactly as Play installs it
+  (``play-apk``, refusing any signer but ``release.appSigningCertificate``),
+  so a sideloaded install and Play's update each other in every app,
+  Kanban's included. ``release --ship`` builds and signs nothing on the
+  owner's machine: no Gradle, no ``apksigner``, no release key. The
+  arm64-only APK goes, since Play makes one universal APK. The order is now
+  Publish Android's check, its upload, Play's APK fetched and cold-started,
+  and last the GitHub release, made as a draft and then published, which
+  creates the tag: a tagged release always has its APK and manual, and a
+  failure before it leaves no tag and is resumed by shipping again.
 - ``check-app`` holds every app's Android release build to one shape: R8 and
   resource shrinking on, Sentry's Android Gradle plugin uploading each
   build's mapping file (at the version ``@sentry/react-native`` pairs with,
