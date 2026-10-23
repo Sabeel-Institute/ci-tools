@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- The Nightly workflow checks production each night, read-only: the live
+  web app must be, byte for byte, the Web workflow's build of the commit its
+  scripts are stamped with (``ci-hosting-smoke --live``), and every callable
+  must answer (``ci-functions health``). A failure opens or updates one
+  ``nightly`` issue (``nightly-issue``); a night that passes closes it. The
+  Web workflow keeps its builds 90 days for it. The push credentials are not
+  checked: that needs production credentials in a scheduled job.
 - ``native-e2e`` calls every callable on the emulators once after the seed
   (``ci-functions warm``), so a flow meets functions whose workers are up. A
   first call on a busy CI Mac took longer than LMS's iPhone flow waits.
