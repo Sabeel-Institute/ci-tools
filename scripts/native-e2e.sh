@@ -18,8 +18,9 @@ set -euo pipefail
 # It stamps and builds the debug app, starts the app's emulators
 # (`sabeel-ci emulators`), runs the app's seed, scripts/seed-emulators.mjs
 # (with a web dev server on the app's `web` port, its address in E2E_BASE, when
-# native.seedWeb says the seed drives the web app), serves the JavaScript from
-# Metro on 8081 with EXPO_PUBLIC_USE_EMULATORS=1, and runs the flows.
+# native.seedWeb says the seed drives the web app), calls every callable once
+# so the emulated functions are up (`ci-functions warm`), serves the JavaScript
+# from Metro on 8081 with EXPO_PUBLIC_USE_EMULATORS=1, and runs the flows.
 # Screenshots, Maestro's report and the logs land in shots/native/. It stops
 # what it started; a held 8081 or web port is refused, since Metro's port is
 # shared with the sibling apps.
@@ -145,6 +146,10 @@ if [ "$SEED_WEB" = true ]; then
 fi
 E2E_BASE="http://127.0.0.1:${WEB_PORT}/" node "$SEED" >"$LOGS/seed.log" 2>&1 \
   || { echo "native-e2e: the seed failed; see $LOGS/seed.log" >&2; exit 1; }
+# Every callable once, so each emulated function's worker is up before a flow
+# needs it: a first call can take longer than a flow waits (`ci-functions warm`).
+node "$CI_TOOLS/scripts/ci-functions.mjs" warm >"$LOGS/warm.log" 2>&1 \
+  || { echo "native-e2e: the emulated functions did not all start; see $LOGS/warm.log" >&2; exit 1; }
 if [ -n "${WEB_PID:-}" ]; then stop_tree "$WEB_PID"; WEB_PID=; fi
 # What the app reaches on this machine's 127.0.0.1 (LMS's media store signs
 # its URLs for it), which on the Android emulator is the emulator itself. The

@@ -4,6 +4,9 @@ Changelog
 Unreleased
 ----------
 
+- ``native-e2e`` calls every callable on the emulators once after the seed
+  (``ci-functions warm``), so a flow meets functions whose workers are up. A
+  first call on a busy CI Mac took longer than LMS's iPhone flow waits.
 - The Health workflow calls every callable every half hour (``ci-functions
   health``, no credentials) and fails when one does not answer for itself.
   On 2026-10-22 Google's automatic base-image update moved every function of
