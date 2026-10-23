@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
 import { androidIdentity, buildNumber, versionCode, versionProblems } from '../lib/version.mjs';
-import { BUNDLE, fingerprint } from './publish-play.mjs';
+import { fingerprint } from './publish-play.mjs';
 import { nativeBuildEnv } from './lib/sentry.mjs';
 
 /**
@@ -26,20 +26,22 @@ import { nativeBuildEnv } from './lib/sentry.mjs';
  * --dry-run does all of it but the commit, shows the change and leaves nothing
  * behind.
  *
- * Step 2 builds the merged commit on this machine and releases it:
+ * Step 2 releases the merged commit:
  *
- *  - the AAB through `sabeel-ci build-aab` (its gates, the build stamp, the
- *    signature), then every gate of `sabeel-ci publish-play --check`,
- *    including Play's permission;
- *  - the APKs, arm64-v8a and universal (build.gradle's ABI splits), signed
- *    with the bundle's key;
+ *  - Play gets the bundle CI built from that commit: the Android workflow's,
+ *    signed in its release-build environment, its gates passed (`build-aab`)
+ *    and cold-started five times on an emulator. Step 2 waits for that run if
+ *    it is still going and refuses one that failed, then has Publish Android
+ *    check the bundle and Play's permission without uploading;
+ *  - the APKs, arm64-v8a and universal (build.gradle's ABI splits), are built
+ *    on this machine, signed with the key on CI's bundle;
  *  - the universal APK cold-started on an emulator (`sabeel-ci check-release`);
  *  - the GitHub release v<version> at that commit, with the APKs and the
  *    manual, titled and described by the version's deploy-log entry. Creating
  *    it creates the tag, which only the owner may;
- *  - last, because it reaches every tester's phone by itself, Play internal
- *    testing (`sabeel-ci publish-play --internal`). If that fails the GitHub
- *    release stands, and it is rerun alone.
+ *  - last, because it reaches every tester's phone by itself, Publish Android
+ *    uploads CI's bundle to Play internal testing. If that fails the GitHub
+ *    release stands, and Publish Android is run again alone.
  *
  * Then it prints the runs that release the same commit to the web (Deploy Web,
  * with this commit's Web build) and to iPhones (the iOS workflow on the tag).
@@ -255,6 +257,75 @@ function apksigner() {
   }
 }
 
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** `gh run watch` on a run until it ends; false when it failed. */
+function watched(repository, id) {
+  try {
+    show('gh', ['run', 'watch', String(id), '--repo', repository, '--exit-status', '--interval', '30']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Android workflow's run that built `sha` from main, once it has passed:
+ * its bundle is the one Play gets. Waits for a run still going; a merge
+ * starts one, which can take a minute to appear.
+ */
+function androidBuild(repository, sha) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const runs = JSON.parse(run('gh', ['run', 'list', '--repo', repository, '--workflow', 'android.yml', '--branch', 'main',
+      '--commit', sha, '--json', 'databaseId,status,conclusion,event', '--limit', '5']))
+      .filter((build) => ['push', 'workflow_dispatch'].includes(build.event));
+    const passed = runs.find((build) => build.conclusion === 'success');
+    if (passed) return passed.databaseId;
+    const going = runs.find((build) => build.status !== 'completed');
+    if (going) {
+      console.log(`Waiting for the Android build of ${sha.slice(0, 7)} (run ${going.databaseId}), whose bundle Play gets…`);
+      if (watched(repository, going.databaseId)) return going.databaseId;
+    }
+    if (runs.length) {
+      const failed = (going ?? runs[0]).databaseId;
+      throw new Error(`The Android build of ${sha.slice(0, 7)} did not pass (run ${failed}), and Play gets only a bundle that did.\n`
+        + `    Rerun it (gh run rerun ${failed} --repo ${repository} --failed), then ship again.`);
+    }
+    sleep(30_000);
+  }
+  throw new Error(`The Android workflow has not built ${sha.slice(0, 7)}. Start it, then ship again:\n`
+    + `    gh workflow run android.yml --repo ${repository} --ref main`);
+}
+
+/** CI's bundle from Android run `id`, downloaded into `out`. */
+function downloadBundle(repository, id, sha, out) {
+  const into = join(out, 'android');
+  run('gh', ['run', 'download', String(id), '--repo', repository, '--name', `android-aab-${sha}`, '--dir', into]);
+  const bundle = join(into, 'app-release.aab');
+  if (!existsSync(bundle)) throw new Error(`Android run ${id} kept no app-release.aab for ${sha.slice(0, 7)}.`);
+  return bundle;
+}
+
+/**
+ * Publish Android on CI's bundle from Android run `id`: with `publish`
+ * false it checks the bundle and Play's permission and uploads nothing.
+ * Returns whether the run passed.
+ */
+function publishAndroid(repository, id, publish) {
+  // GitHub's clock, not this machine's, stamps the run; allow for a minute between them.
+  const since = Date.now() - 60_000;
+  run('gh', ['workflow', 'run', 'android-publish.yml', '--repo', repository, '--ref', 'main',
+    '-f', `build_run_id=${id}`, '-f', `publish=${publish}`]);
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const dispatched = JSON.parse(run('gh', ['run', 'list', '--repo', repository, '--workflow', 'android-publish.yml',
+      '--event', 'workflow_dispatch', '--json', 'databaseId,createdAt', '--limit', '5']))
+      .find((started) => Date.parse(started.createdAt) >= since);
+    if (dispatched) return watched(repository, dispatched.databaseId);
+    sleep(5_000);
+  }
+  throw new Error('Publish Android was started but no run of it appeared; see the repository\'s Actions tab.');
+}
+
 /** The Web workflow's successful run for `sha`, or null. */
 function webBuild(repository, sha) {
   try {
@@ -265,7 +336,7 @@ function webBuild(repository, sha) {
   }
 }
 
-/** Step 2: build the merged release, check it, tag it and publish it. */
+/** Step 2: release the merged commit: CI's bundle to Play, APKs built here, checked, tagged. */
 function ship() {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
   if (branch !== 'main') throw new Error(`Ship from main, not ${branch}: once the owner has merged the release pull request,\n    git switch main && git pull --ff-only`);
@@ -283,7 +354,8 @@ function ship() {
   if (problems.length) throw new Error(`Not releasing v${version}:\n${list(problems)}`);
   const released = releasedVersions();
   if (released.includes(version)) {
-    throw new Error(`v${version} is already released. If Play did not take it: npx sabeel-ci publish-play --internal\n`
+    throw new Error(`v${version} is already released. If Play did not take it, run Publish Android on its Android build:\n`
+      + `    gh workflow run android-publish.yml --repo ${repository} --ref main -f build_run_id=<the Android run> -f publish=true\n`
       + 'Otherwise open the next version: npx sabeel-ci release <X.Y.Z> --notes <entry.md>');
   }
   const problem = releasedProblem(version, released);
@@ -292,12 +364,15 @@ function ship() {
   const notes = sabeelCi(['deploy-notes', version]);
 
   const inherit = { stdio: 'inherit' };
-  sabeelCi(['build-aab'], inherit);
-  sabeelCi(['publish-play', '--check'], inherit);
+  const out = mkdtempSync(join(tmpdir(), `release-v${version}-`));
+  const android = androidBuild(repository, sha);
+  const bundle = downloadBundle(repository, android, sha, out);
+  const signer = fingerprint(/SHA256:\s*([0-9A-Fa-f:]+)/.exec(run('keytool', ['-printcert', '-jarfile', bundle]))?.[1] ?? '');
+  if (!publishAndroid(repository, android, false)) {
+    throw new Error(`Publish Android's check of run ${android}'s bundle failed (above); nothing was tagged or uploaded.`);
+  }
   sabeelCi(['build-info'], inherit);
   show('./gradlew', ['assembleRelease', '--no-daemon'], { cwd: 'app/android', env: nativeBuildEnv(config()) });
-  const out = mkdtempSync(join(tmpdir(), `release-v${version}-`));
-  const signer = fingerprint(/SHA256:\s*([0-9A-Fa-f:]+)/.exec(run('keytool', ['-printcert', '-jarfile', BUNDLE]))?.[1] ?? '');
   const signing = apksigner();
   const assets = ABIS.map((abi) => {
     const apk = join(APKS, `app-${abi}-release.apk`);
@@ -317,14 +392,12 @@ function ship() {
   const notesFile = join(out, 'notes.md');
   writeFileSync(notesFile, notes + '\n');
   show('gh', ['release', 'create', `v${version}`, '--repo', repository, '--target', sha, '--title', title, '--notes-file', notesFile, ...assets, MANUAL_PDF]);
-  try {
-    sabeelCi(['publish-play', '--internal'], inherit);
-  } catch {
+  if (!publishAndroid(repository, android, true)) {
     throw new Error(`v${version}'s GitHub release stands, but Play internal testing did not take it (above).\n`
-      + 'Once that is fixed, publish it alone: npx sabeel-ci publish-play --internal');
+      + `Once that is fixed, publish the same bundle alone:\n    gh workflow run android-publish.yml --repo ${repository} --ref main -f build_run_id=${android} -f publish=true`);
   }
   const web = webBuild(repository, sha);
-  console.log(`\nv${version} is released at ${sha.slice(0, 7)}: the GitHub release and Play internal testing.`
+  console.log(`\nv${version} is released at ${sha.slice(0, 7)}: the GitHub release, and Play internal testing with CI's bundle (Android run ${android}).`
     + ` The release check's screens are in ${join(out, 'release-check')}.\nThe same commit to the web and to iPhones:\n`
     + `  gh workflow run web-deploy.yml --repo ${repository} -f build_run_id=${web ?? `<the Web run for ${sha.slice(0, 7)}, once it has passed>`} -f deploy=true\n`
     + `  gh workflow run ios.yml --repo ${repository} --ref v${version} -f testflight=true`);
