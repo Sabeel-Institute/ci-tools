@@ -204,10 +204,12 @@ describe('release, step 1: the release pull request', () => {
 });
 
 const REPO = '--repo Sabeel-Institute/example';
-/** Publish Android dispatched with `flag`, found as run `id`, and watched. */
-const publishAndroid = (flag, id) => [
+const PUBLISH_RUNS = `gh run list ${REPO} --workflow android-publish.yml --event workflow_dispatch --json databaseId --limit 10`;
+/** Publish Android dispatched with `flag`, found as run `id` among those listed `lists` times after, and watched. */
+const publishAndroid = (flag, id, lists = 1) => [
+  PUBLISH_RUNS,
   `gh workflow run android-publish.yml ${REPO} --ref main -f build_run_id=41 -f publish=${flag}`,
-  `gh run list ${REPO} --workflow android-publish.yml --event workflow_dispatch --json databaseId,createdAt --limit 5`,
+  ...Array(lists).fill(PUBLISH_RUNS),
   `gh run watch ${id} ${REPO} --exit-status --interval 30`,
 ];
 /** Each recorded call, with ship's scratch directory as <out>. */
@@ -257,6 +259,17 @@ describe('release, step 2: --ship', () => {
     const said = shipped(test);
     expect(said.indexOf(`gh release delete v0.2.1 ${REPO} --yes`)).toBe(said.findIndex((call) => call.startsWith('gh release create')) - 1);
   });
+
+  it('watches the run its dispatch started, not the check run GitHub still lists newest', () => {
+    const test = fixture();
+    const sha = test.merged('0.2.1');
+    const result = test.run(['--ship'], { PUBLISH_LAG: '1' });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(shipped(test).slice(3, 13)).toEqual([...publishAndroid(false, 51, 2), ...publishAndroid(true, 52, 2)]);
+    expect(test.said()).not.toContain(`gh run watch 50 ${REPO} --exit-status --interval 30`);
+    expect(shipped(test)[2]).toContain(sha);
+  }, 30_000);
 
   it('waits for the Android build still going, then publishes its bundle', () => {
     const test = fixture();
