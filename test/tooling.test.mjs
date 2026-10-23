@@ -72,6 +72,15 @@ export const EMULATOR_PORTS = {
 } as const;
 `;
 
+/** The example app's Firebase app config, as Firebase writes it. */
+const GOOGLE_SERVICES = {
+  project_info: { project_number: '123456789012', project_id: 'example-project' },
+  client: [{ client_info: { mobilesdk_app_id: '1:123456789012:android:0', android_client_info: { package_name: 'com.sabeelinstitute.example' } } }],
+  configuration_version: '1',
+};
+const PLIST = ({ bundle = 'com.sabeelinstitute.example', project = 'example-project' } = {}) => '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n'
+  + `\t<key>BUNDLE_ID</key>\n\t<string>${bundle}</string>\n\t<key>PROJECT_ID</key>\n\t<string>${project}</string>\n</dict>\n</plist>\n`;
+
 /** An app repository that meets everything check-app asks. */
 function app() {
   const root = mkdtempSync(join(tmpdir(), 'ci-tools-app-'));
@@ -103,7 +112,11 @@ function app() {
   put('packages/shared/src/notify.ts', "export const PUSH_CHANNEL_ID = 'sabeel-alerts';\n");
   put('scripts/seed.mjs', "import { ports } from '@sabeel-institute/ci-tools/lib/ports.mjs';\nconst wait = 61000; // ms, not a port\n");
   put('package.json', { scripts: { 'dev:web': 'cd app && expo start --web --port $(sabeel-ci ports web)', test: 'vitest run' } });
+  put('app/google-services.json', GOOGLE_SERVICES);
+  put('app/android/app/google-services.json', GOOGLE_SERVICES);
+  put('app/GoogleService-Info.plist', PLIST());
   execFileSync('git', ['init', '--quiet'], { cwd: root });
+  execFileSync('git', ['add', '--', 'app/google-services.json', 'app/android/app/google-services.json', 'app/GoogleService-Info.plist'], { cwd: root });
   return { root, put };
 }
 
@@ -305,6 +318,8 @@ describe('check-app', () => {
       expect.stringMatching(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/),
       expect.stringMatching(/identifier/),
       expect.stringMatching(/no deploy-log entry for v0\.3\.0/),
+      "app/google-services.json has no Android app com.example.app, app.json's package",
+      "app/GoogleService-Info.plist is for com.sabeelinstitute.example, app.json's bundle id is <key>bad</key>",
       expect.stringMatching(/out of step/),
     ]);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
@@ -452,6 +467,27 @@ describe('check-app', () => {
     expect(vapidKeyProblems(root)).toEqual(missing);
     rmSync(join(root, 'app/src/firebase-config.ts'));
     expect(problems(root)).toEqual(missing);
+  });
+
+  it('requires the Firebase app config committed, for this app and its project', () => {
+    const { root, put } = app();
+    expect(problems(root)).toEqual([]);
+    execFileSync('git', ['rm', '--quiet', '--cached', '--', 'app/GoogleService-Info.plist'], { cwd: root });
+    expect(problems(root)).toEqual([expect.stringMatching(/^app\/GoogleService-Info\.plist is not committed\. Every app commits its Firebase app config/)]);
+    execFileSync('git', ['add', '--', 'app/GoogleService-Info.plist'], { cwd: root });
+    put('app/android/app/google-services.json', { ...GOOGLE_SERVICES, configuration_version: '2' });
+    expect(problems(root)).toEqual([expect.stringMatching(/^app\/android\/app\/google-services\.json differs from app\/google-services\.json/)]);
+    const other = { ...GOOGLE_SERVICES, project_info: { project_id: 'legacy-project' },
+      client: [{ client_info: { android_client_info: { package_name: 'com.sabeelinstitute.other' } } }] };
+    put('app/google-services.json', other);
+    put('app/android/app/google-services.json', other);
+    put('app/GoogleService-Info.plist', PLIST({ bundle: 'com.sabeelinstitute.other', project: 'legacy-project' }));
+    expect(problems(root)).toEqual([
+      'app/google-services.json is for Firebase project "legacy-project", but .firebaserc names "example-project"',
+      "app/google-services.json has no Android app com.sabeelinstitute.example, app.json's package",
+      "app/GoogleService-Info.plist is for com.sabeelinstitute.other, app.json's bundle id is com.sabeelinstitute.example",
+      'app/GoogleService-Info.plist is for Firebase project "legacy-project", but .firebaserc names "example-project"',
+    ]);
   });
 
   it('holds the google-services Gradle plugin at one version', () => {

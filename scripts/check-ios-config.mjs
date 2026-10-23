@@ -53,8 +53,8 @@ export function iosConfigProblems(root = '.', env = process.env) {
   if (!existsSync(join(root, 'app/GoogleService-Info.plist'))) {
     fail(
       'app/GoogleService-Info.plist is missing.\n'
-        + `    Download it from the Firebase console: Project settings -> the iOS app (${ios.bundleIdentifier}).\n`
-        + '    An app that does not commit it has CI write it from the GOOGLE_SERVICE_INFO_PLIST secret.',
+        + `    Download it from the Firebase console: Project settings -> the iOS app (${ios.bundleIdentifier}),\n`
+        + '    and commit it: every app does, and no secret writes it.',
     );
   } else {
     const plist = plistStrings(read('app/GoogleService-Info.plist'));

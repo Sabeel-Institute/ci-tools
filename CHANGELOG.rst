@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- Every app commits its Firebase app config: ``app/google-services.json``,
+  the identical ``app/android/app/google-services.json`` and
+  ``app/GoogleService-Info.plist``. ``check-app`` requires all three, naming
+  the app's package, bundle id and ``.firebaserc`` project. CI no longer
+  writes them from the ``ANDROID_GOOGLE_SERVICES_JSON`` and
+  ``GOOGLE_SERVICE_INFO_PLIST`` secrets (LMS's), so it cannot overwrite a
+  committed file, and the native flows' placeholder step is gone.
 - ``native-e2e`` calls every callable on the emulators once after the seed
   (``ci-functions warm``), so a flow meets functions whose workers are up. A
   first call on a busy CI Mac took longer than LMS's iPhone flow waits.

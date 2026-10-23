@@ -204,28 +204,24 @@ require('node:fs').writeFileSync(${JSON.stringify(join(test.directory, 'sentry-c
   it('restores the iOS build configuration with private permissions, every value masked', () => {
     const test = fixture();
     test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
-    const plist = '<plist><dict><key>BUNDLE_ID</key><string>com.sabeelinstitute.example</string></dict></plist>\n';
     const output = test.run('prepare-ios', {
       APP_ENV_LOCAL: 'EXPO_PUBLIC_SENTRY_DSN_NATIVE="https://dsn@example.invalid/1"\n',
       BUILD_ENV: '# the build machine\nSENTRY_AUTH_TOKEN="token=value"\r\nIOS_TEAM_ID=TEAM123456\nASC_KEY_ID=\n',
-      GOOGLE_SERVICE_INFO_PLIST: Buffer.from(plist).toString('base64'),
     });
     expect(output.split('\n').filter((line) => line.startsWith('::add-mask::')).sort())
       .toEqual(['::add-mask::TEAM123456', '::add-mask::https://dsn@example.invalid/1', '::add-mask::token=value']);
-    for (const path of ['app/.env.local', 'app/.env.sentry-build-plugin', 'app/GoogleService-Info.plist']) {
+    for (const path of ['app/.env.local', 'app/.env.sentry-build-plugin']) {
       expect(statSync(join(test.directory, path)).mode & 0o777, path).toBe(0o600);
     }
     expect(readFileSync(join(test.directory, 'app/.env.sentry-build-plugin'), 'utf8')).toContain('IOS_TEAM_ID=TEAM123456');
-    expect(readFileSync(join(test.directory, 'app/GoogleService-Info.plist'), 'utf8')).toBe(plist);
   });
 
-  it('writes the iOS Firebase configuration only for this app, and only when there is one', () => {
+  it('never writes the Firebase app config, which every app commits', () => {
     const test = fixture();
     test.put('app/app.json', JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.sabeelinstitute.example' } } }));
-    test.run('prepare-ios', { BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n' });
+    const plist = Buffer.from('<key>BUNDLE_ID</key><string>com.sabeelinstitute.example</string>').toString('base64');
+    test.run('prepare-ios', { BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n', GOOGLE_SERVICE_INFO_PLIST: plist });
     expect(existsSync(join(test.directory, 'app/GoogleService-Info.plist'))).toBe(false);
-    const other = Buffer.from('<key>BUNDLE_ID</key><string>com.sabeelinstitute.other</string>').toString('base64');
-    expect(() => test.run('prepare-ios', { BUILD_ENV: 'IOS_TEAM_ID=TEAM123456\n', GOOGLE_SERVICE_INFO_PLIST: other })).toThrow(/wrong bundle id/);
     expect(() => test.run('prepare-ios', {})).toThrow(/Missing BUILD_ENV/);
     expect(() => test.run('prepare-ios', { APP_ENV_LOCAL: 'EXPO_PUBLIC_USE_EMULATORS=1\n', BUILD_ENV: 'A=1\n' })).toThrow(/emulators/);
   });

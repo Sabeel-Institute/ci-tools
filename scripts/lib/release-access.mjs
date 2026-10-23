@@ -12,8 +12,8 @@
  * Held over the templates by ci-tools' tests, and over every workflow an app
  * has, its own included, by `sabeel-ci check-app`.
  */
-export const SIGNING = ['APP_ENV_LOCAL', 'ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PROPERTIES', 'ANDROID_GOOGLE_SERVICES_JSON',
-  'BUILD_ENV', 'IOS_DIST_P12', 'IOS_DIST_P12_PASSWORD', 'IOS_PROFILE', 'ASC_KEY_P8', 'GOOGLE_SERVICE_INFO_PLIST'];
+export const SIGNING = ['APP_ENV_LOCAL', 'ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PROPERTIES',
+  'BUILD_ENV', 'IOS_DIST_P12', 'IOS_DIST_P12_PASSWORD', 'IOS_PROFILE', 'ASC_KEY_P8'];
 
 /**
  * Each publishing workflow, and the jobs in it that release: each starts by
