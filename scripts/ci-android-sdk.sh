@@ -3,9 +3,12 @@ set -euo pipefail
 
 # Install the Android SDK packages the Gradle build would otherwise fetch for
 # itself, with retries: the NDK and build tools at the versions React Native's
-# version catalog names. Gradle fetches them once and fails the build on a bad
-# download, and Google's SDK downloads arrived truncated ("Error on ZipFile
-# unknown archive") three times on 2026-10-21. Run after `npm ci`.
+# version catalog names, and CMake at the Android Gradle Plugin's default, which
+# every native module that names no version builds with. Gradle fetches them
+# once and fails the build on a bad download: Google's SDK downloads arrived
+# truncated ("Error on ZipFile unknown archive") three times on 2026-10-21, and
+# on 2026-10-23 two modules configuring at once both fetched CMake and one read
+# the other's half-written archive. Run after `npm ci`.
 #
 #   sabeel-ci ci-android-sdk
 
@@ -17,7 +20,10 @@ version() {
   [ -n "$found" ] || { echo "ci-android-sdk.sh: no $1 in $catalog" >&2; exit 1; }
   echo "$found"
 }
-packages=("ndk;$(version ndkVersion)" "build-tools;$(version buildTools)")
+# AGP's default CMake (8.12 uses 3.22.1); a build that wants another still
+# fetches it, as before.
+cmake=3.22.1
+packages=("ndk;$(version ndkVersion)" "build-tools;$(version buildTools)" "cmake;$cmake")
 sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
 yes | "$sdkmanager" --licenses >/dev/null || true
