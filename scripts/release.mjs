@@ -300,15 +300,17 @@ function draftRelease(repository, version) {
  * Returns whether the run passed.
  */
 function publishAndroid(repository, id, publish) {
-  // GitHub's clock, not this machine's, stamps the run; allow for a minute between them.
-  const since = Date.now() - 60_000;
+  const listed = () => JSON.parse(run('gh', ['run', 'list', '--repo', repository, '--workflow', 'android-publish.yml',
+    '--event', 'workflow_dispatch', '--json', 'databaseId', '--limit', '10'])).map((started) => started.databaseId);
+  // This dispatch's run is the one GitHub had not listed before it. The check
+  // run that ended moments ago stays the newest until GitHub lists this one,
+  // and watching it would go on to Play before the upload.
+  const before = new Set(listed());
   run('gh', ['workflow', 'run', 'android-publish.yml', '--repo', repository, '--ref', 'main',
     '-f', `build_run_id=${id}`, '-f', `publish=${publish}`]);
   for (let attempt = 0; attempt < 24; attempt++) {
-    const dispatched = JSON.parse(run('gh', ['run', 'list', '--repo', repository, '--workflow', 'android-publish.yml',
-      '--event', 'workflow_dispatch', '--json', 'databaseId,createdAt', '--limit', '5']))
-      .find((started) => Date.parse(started.createdAt) >= since);
-    if (dispatched) return watched(repository, dispatched.databaseId);
+    const dispatched = listed().find((started) => !before.has(started));
+    if (dispatched) return watched(repository, dispatched);
     sleep(5_000);
   }
   throw new Error('Publish Android was started but no run of it appeared; see the repository\'s Actions tab.');
