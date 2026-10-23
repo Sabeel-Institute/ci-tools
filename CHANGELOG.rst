@@ -4,6 +4,13 @@ Changelog
 Unreleased
 ----------
 
+- The Nightly workflow checks production each night, read-only: the live
+  web app must be, byte for byte, the Web workflow's build of the commit its
+  scripts are stamped with (``ci-hosting-smoke --live``), and every callable
+  must answer (``ci-functions health``). A failure opens or updates one
+  ``nightly`` issue (``nightly-issue``); a night that passes closes it. The
+  Web workflow keeps its builds 90 days for it. The push credentials are not
+  checked: that needs production credentials in a scheduled job.
 - ``release --ship`` publishes the bundle CI built from the release commit,
   as LMS 0.2.1 went out: it waits for the Android workflow's run (signed in
   ``release-build``, cold-started five times) and refuses one that failed,

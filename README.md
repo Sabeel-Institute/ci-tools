@@ -76,6 +76,8 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-platform <task>` | Signed release builds, through `build-aab` and `build-web`, and their provenance: `prepare-android`, `prepare-web`, `prepare-ios`, `asc-key`, `android`, `web` (with its source maps beside the site), `resolve-build`, `resolve-android-build`, `sourcemaps` (Deploy Web's upload to Sentry), `deploy-config`, `validate-auth` |
 | `ci-play verify\|release` | Check a downloaded Play bundle, then check Play access or publish to internal testing through `publish-play` |
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
+| `ci-hosting-smoke --live` | The live web app, between deploys: it must serve, byte for byte, the Web workflow's build of the commit its scripts are stamped with (the Nightly workflow) |
+| `nightly-issue <check>=<outcome>…` | The Nightly workflow's one `nightly` issue: opened or commented on when a check did not pass, closed on a night that passes |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
 | `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
 | `ci-functions warm` | Every callable on the local emulators, once, so each function's worker is up; `native-e2e` runs it after the seed |
@@ -270,6 +272,19 @@ must answer for itself, with a result or one of its own JSON errors. A failed
 run fails the workflow, and GitHub emails a failed scheduled run to whoever
 last changed its schedule: the owner, whose account commits the rendered
 workflows.
+
+## Production every night
+
+The Nightly workflow (`nightly.yml`) runs at 10:23 UTC. It checks that the
+live web app is, byte for byte, the Web workflow's build of the commit its
+scripts are stamped with, so a site published from anywhere but CI's build, or
+missing a file, is found (`ci-hosting-smoke --live`; the Web workflow keeps
+its builds 90 days for it), and that every callable answers
+(`ci-functions health`). A failure opens one issue labelled `nightly`, or
+comments on the open one, and fails the run; a night that passes closes it. It
+signs in to nothing. The push credentials are not part of it: asking FCM and
+Apple needs production's sender identity and Apple's key in a scheduled job,
+which no environment grants, so `sabeel-ci check-push` asks them by hand.
 
 ## Emulator ports
 
