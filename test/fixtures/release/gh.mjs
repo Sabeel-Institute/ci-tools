@@ -4,8 +4,9 @@
 // 50 from before, and each dispatch is the next run from 51, which a listing
 // leaves out PUBLISH_LAG times after its dispatch. Every run is stamped as
 // started now, as a check run and the upload after it are within a minute;
-// `run watch` fails for the runs FAIL_WATCH names. v<version> is a draft release when DRAFT_RELEASE is set, and none
-// otherwise; FAIL_RELEASE names the `release` subcommand that fails.
+// `run watch` fails for the runs FAIL_WATCH names. v<version> is a draft
+// release when DRAFT_RELEASE is set, and none otherwise; FAIL_RELEASE names
+// the `release` subcommand that fails.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { log } from './log.mjs';
