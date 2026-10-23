@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -62,6 +62,7 @@ describe("play-apk: the APK Play signs", () => {
       'classes.dex': 'Lcom/sabeelinstitute/example/MainActivity;',
       'classes2.dex': 'Lcom/pairip/licensecheck/LicenseActivity;',
     }))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('keeps any other Play error as it is', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
@@ -52,5 +52,6 @@ describe('the screens report', () => {
     expect(existsSync(join(directory, 'diff.png'))).toBe(true);
 
     expect(compare(before, png(10, 12), join(directory, 'taller.png'))).toEqual({ ratio: 1, note: 'size 10×10 → 10×12' });
+    rmSync(directory, { recursive: true, force: true });
   });
 });

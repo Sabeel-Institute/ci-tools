@@ -78,10 +78,12 @@ function fixture() {
   outside('bin/gh', '#!/usr/bin/env node\n' + stand('gh.mjs'));
   outside('tools/bin/sabeel-ci.mjs', stand('sabeel-ci.mjs'));
   outside('entry.md', ENTRY);
+  // The release's own scratch directories land in base, which afterEach removes.
+  mkdirSync(join(base, 'tmp'));
   const run = (args, env = {}) => spawnSync(process.execPath, [script, ...args], {
     cwd: root, encoding: 'utf8', env: {
       ...process.env, PATH: join(base, 'bin') + ':' + process.env.PATH, CI_TOOLS: join(base, 'tools'),
-      RELEASE_LOG: join(base, 'calls.log'), ANDROID_HOME: '', ...env,
+      RELEASE_LOG: join(base, 'calls.log'), ANDROID_HOME: '', TMPDIR: join(base, 'tmp'), ...env,
     },
   });
   const calls = () => (existsSync(join(base, 'calls.log'))
