@@ -215,28 +215,50 @@ describe('release, step 2: --ship', () => {
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     const apks = 'app/android/app/build/outputs/apk/release';
+    const repo = '--repo Sabeel-Institute/example';
+    const publish = (flag, run) => [
+      `gh workflow run android-publish.yml ${repo} --ref main -f build_run_id=41 -f publish=${flag}`,
+      `gh run list ${repo} --workflow android-publish.yml --event workflow_dispatch --json databaseId,createdAt --limit 5`,
+      `gh run watch ${run} ${repo} --exit-status --interval 30`,
+    ];
     expect(test.said().map((call) => call.replace(/ \S*\/release-v0\.2\.1-\w+\//g, ' <out>/'))).toEqual([
       'sabeel-ci deploy-notes 0.2.1 --title',
       'sabeel-ci deploy-notes 0.2.1',
-      'sabeel-ci build-aab',
-      'sabeel-ci publish-play --check',
+      `gh run list ${repo} --workflow android.yml --branch main --commit ${sha} --json databaseId,status,conclusion,event --limit 5`,
+      `gh run download 41 ${repo} --name android-aab-${sha} --dir <out>/android`,
+      'keytool -printcert -jarfile <out>/android/app-release.aab',
+      ...publish(false, 51),
       'sabeel-ci build-info',
       'gradlew assembleRelease --no-daemon',
-      'keytool -printcert -jarfile app/android/app/build/outputs/bundle/release/app-release.aab',
       `apksigner verify --print-certs ${apks}/app-arm64-v8a-release.apk`,
       `apksigner verify --print-certs ${apks}/app-universal-release.apk`,
       `sabeel-ci check-release ${apks}/app-universal-release.apk --commit ${sha} --out <out>/release-check`,
-      `gh release create v0.2.1 --repo Sabeel-Institute/example --target ${sha} --title v0.2.1 — Faster sign-in --notes-file <out>/notes.md <out>/sabeel-example-arm64-v8a.apk <out>/sabeel-example-universal.apk docs/USER-MANUAL.pdf`,
-      'sabeel-ci publish-play --internal',
-      `gh run list --repo Sabeel-Institute/example --workflow web.yml --commit ${sha} --status success --json databaseId --limit 1`,
+      `gh release create v0.2.1 ${repo} --target ${sha} --title v0.2.1 — Faster sign-in --notes-file <out>/notes.md <out>/sabeel-example-arm64-v8a.apk <out>/sabeel-example-universal.apk docs/USER-MANUAL.pdf`,
+      ...publish(true, 52),
+      `gh run list ${repo} --workflow web.yml --commit ${sha} --status success --json databaseId --limit 1`,
     ]);
+    // Nothing on this machine builds or uploads a bundle: Play gets CI's.
+    expect(test.said().some((call) => /build-aab|publish-play/.test(call))).toBe(false);
     const release = test.calls().find((call) => call.args[0] === 'release');
     expect(release.notes).toBe('Sign-in takes one tap.\n');
     expect(release.assets.every((asset) => asset.exists)).toBe(true);
+    expect(result.stdout).toContain("Play internal testing with CI's bundle (Android run 41)");
     expect(result.stdout).toContain('gh workflow run web-deploy.yml --repo Sabeel-Institute/example -f build_run_id=99 -f deploy=true');
     expect(result.stdout).toContain('gh workflow run ios.yml --repo Sabeel-Institute/example --ref v0.2.1 -f testflight=true');
     // Nothing is pushed: the tag is GitHub's, made by the release.
     expect(test.remote('show-ref')).toBe(refs);
+  });
+
+  it('waits for the Android build still going, then ships its bundle', () => {
+    const test = fixture();
+    test.merged('0.2.1');
+    const result = test.run(['--ship'], { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'in_progress', conclusion: '', event: 'push' }]) });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Waiting for the Android build of');
+    const said = test.said();
+    expect(said.indexOf('gh run watch 41 --repo Sabeel-Institute/example --exit-status --interval 30'))
+      .toBeLessThan(said.findIndex((call) => call.startsWith('gh run download 41')));
   });
 
   it('ships only a clean main that origin has', () => {
@@ -258,7 +280,7 @@ describe('release, step 2: --ship', () => {
     test.git('tag', 'v0.2.1');
     test.git('push', '--quiet', 'origin', 'v0.2.1');
     let result = test.run(['--ship']);
-    expect(result.stderr).toContain('v0.2.1 is already released. If Play did not take it: npx sabeel-ci publish-play --internal');
+    expect(result.stderr).toContain('v0.2.1 is already released. If Play did not take it, run Publish Android on its Android build:');
     test.git('push', '--quiet', 'origin', ':refs/tags/v0.2.1', 'main:refs/tags/v0.3.0');
     expect(test.run(['--ship']).stderr).toContain('is not above the last release, v0.3.0');
     test.git('push', '--quiet', 'origin', ':refs/tags/v0.3.0');
@@ -269,7 +291,11 @@ describe('release, step 2: --ship', () => {
   });
 
   it.each([
-    ['the Play gates', { FAIL_PUBLISH: '--check' }, /sabeel-ci publish-play --check stopped the release/],
+    ['the Android build', { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'completed', conclusion: 'failure', event: 'push' }]) },
+      /The Android build of \w{7} did not pass \(run 41\), and Play gets only a bundle that did\.\n {4}Rerun it \(gh run rerun 41/],
+    ['the Android build still going', { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'in_progress', conclusion: '', event: 'push' }]), FAIL_WATCH: '41' },
+      /did not pass \(run 41\)/],
+    ["Publish Android's check", { FAIL_WATCH: '51' }, /Publish Android's check of run 41's bundle failed \(above\); nothing was tagged or uploaded/],
     ['the ABI splits', { NO_SPLITS: '1' }, /Gradle made no app\/android\/app\/build\/outputs\/apk\/release\/app-arm64-v8a-release\.apk/],
     ['another key on the APKs', { FAKE_APK_DIGEST: 'cd'.repeat(32) }, /app-arm64-v8a-release\.apk is not signed with the bundle's key \(CN=Sabeel Institute\)/],
     ['the debug key on the APKs', { FAKE_APK_DN: 'CN=Android Debug, O=Android' }, /is not signed with the bundle's key \(CN=Android Debug, O=Android\)/],
@@ -280,17 +306,17 @@ describe('release, step 2: --ship', () => {
     const result = test.run(['--ship'], env);
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(message);
-    expect(test.said().filter((call) => call.startsWith('gh ') || call.endsWith('--internal'))).toEqual([]);
+    expect(test.said().filter((call) => call.startsWith('gh release') || call.endsWith('publish=true'))).toEqual([]);
   });
 
   it('keeps the GitHub release when Play fails, and says how to finish', () => {
     const test = fixture();
     test.merged('0.2.1');
-    const result = test.run(['--ship'], { FAIL_PUBLISH: '--internal' });
+    const result = test.run(['--ship'], { FAIL_WATCH: '52' });
     expect(result.status).toBe(1);
     expect(test.said().some((call) => call.startsWith('gh release create v0.2.1'))).toBe(true);
     expect(result.stderr).toContain("v0.2.1's GitHub release stands, but Play internal testing did not take it (above).");
-    expect(result.stderr).toContain('npx sabeel-ci publish-play --internal');
+    expect(result.stderr).toContain('gh workflow run android-publish.yml --repo Sabeel-Institute/example --ref main -f build_run_id=41 -f publish=true');
   });
 
   it("releases only in the Institute's own repositories", () => {
