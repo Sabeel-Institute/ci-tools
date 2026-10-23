@@ -4,6 +4,9 @@ Changelog
 Unreleased
 ----------
 
+- ``render-manual`` prints a phone/computer screenshot pair side by side,
+  the phone on the left (46 mm and 116 mm), as Kanban's manual was: LMS's
+  manual goes from 81 pages to 52, Kanban's stays at 34.
 - ``native-e2e`` calls every callable on the emulators once after the seed
   (``ci-functions warm``), so a flow meets functions whose workers are up. A
   first call on a busy CI Mac took longer than LMS's iPhone flow waits.
