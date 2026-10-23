@@ -158,6 +158,41 @@ Its Android build, held by `check-app`:
   }
   ```
 - `app/android/build.gradle` takes the google-services plugin at 4.4.4.
+- Release builds are shrunk: `app/android/gradle.properties` sets
+  `android.enableMinifyInReleaseBuilds=true` and
+  `android.enableShrinkResourcesInReleaseBuilds=true`.
+- `app/android/build.gradle` takes Sentry's Android Gradle plugin at the
+  version `@sentry/react-native` pairs with its Android SDK
+  (`sentryAndroidGradlePluginVersion` in its Expo plugin), and
+  `app/android/app/build.gradle` applies it (`apply plugin:
+  "io.sentry.android.gradle"`). It stamps each shrunk build with the UUID the
+  SDK reports and uploads that build's R8 mapping file, under `sentry.gradle`'s
+  gate, the token reaching sentry-cli as `SENTRY_DOTENV_PATH` and never on a
+  command line; without the file, or with `SENTRY_DISABLE_AUTO_UPLOAD=true`,
+  it uploads nothing:
+
+  ```groovy
+  def sentryBuildEnv = file("$projectRoot/.env.sentry-build-plugin")
+  sentry {
+      includeProguardMapping = true
+      autoUploadProguardMapping = sentryBuildEnv.exists() && System.getenv('SENTRY_DISABLE_AUTO_UPLOAD') != 'true'
+      telemetry = false
+      autoInstallation {
+          enabled = false
+      }
+  }
+  tasks.withType(io.sentry.android.gradle.tasks.SentryCliExecTask).configureEach {
+      if (sentryBuildEnv.exists()) environment('SENTRY_DOTENV_PATH', sentryBuildEnv.absolutePath)
+  }
+  ```
+- `AndroidManifest.xml`'s `<application>` sets `android:allowBackup="false"`:
+  Android backs up none of the app's data, the stored sign-in included.
+- Every request goes through `NetworkClient.kt` beside `MainApplication.kt`,
+  which is `lib/android/NetworkClient.kt` with the app's package written in,
+  and `MainApplication.onCreate` installs it before React Native starts
+  (`OkHttpClientProvider.setOkHttpClientFactory { networkClient(applicationContext) }`):
+  a 10 s connect timeout, an HTTP/2 ping that finds a dead connection within a
+  minute, and no ping on uploads (Cloud Storage requests and PUTs).
 - `AndroidManifest.xml` makes the functions' channel, `PUSH_CHANNEL_ID` in
   `packages/shared/src`, the default: `<meta-data
   android:name="com.google.firebase.messaging.default_notification_channel_id"

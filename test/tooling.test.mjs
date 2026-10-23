@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, findRoot, validate } from '../lib/config.mjs';
-import { hostingProblems, portProblems, problems, pushChannelProblems, vapidKeyProblems } from '../scripts/check-app.mjs';
+import { NETWORK_CLIENT, androidReleaseProblems, hostingProblems, portProblems, problems, pushChannelProblems, vapidKeyProblems } from '../scripts/check-app.mjs';
 import { SDK_DEFAULT } from '../scripts/check-web-push.mjs';
 import { drift, expand, renderAll } from '../scripts/workflows.mjs';
 import { emulatorProject, ports, suitePorts } from '../lib/ports.mjs';
-import { PROJECT_ROOT, SENTRY_GRADLE } from './fixtures/gradle.mjs';
+import { PROJECT_ROOT, SENTRY_AGP, SENTRY_GRADLE } from './fixtures/gradle.mjs';
 import { vapidKey } from './fixtures/push.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
@@ -26,7 +26,7 @@ const RELEASE_KEY = `gradle.taskGraph.whenReady { graph ->
 `;
 /** How build.gradle finds the release key, the one variable ci-platform sets, stops without one, and applies Sentry's upload. */
 const SIGNING = PROJECT_ROOT + "    def releaseKeyFile = file(System.getenv('SABEEL_KEYSTORE_PROPERTIES') ?: \"${System.getProperty('user.home')}/.config/example/keystore.properties\")\n"
-  + RELEASE_KEY + SENTRY_GRADLE;
+  + RELEASE_KEY + SENTRY_GRADLE + 'apply plugin: "io.sentry.android.gradle"\n' + SENTRY_AGP;
 const METRO = "const { getSentryExpoConfig } = require('@sentry/react-native/metro');\nmodule.exports = getSentryExpoConfig(__dirname);\n";
 /** LMS's Hosting site, the one shape. */
 const HOSTING = {
@@ -42,7 +42,11 @@ const HOSTING = {
   ],
 };
 const CHANNEL = '<meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sabeel-alerts"/>';
-const MANIFEST = (meta) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n  <application>\n    ${meta}\n  </application>\n</manifest>\n`;
+const MANIFEST = (meta) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n  <application android:allowBackup="false">\n    ${meta}\n  </application>\n</manifest>\n`;
+/** Where the fixture app's Kotlin lives, for its package. */
+const JAVA = 'app/android/app/src/main/java/com/sabeelinstitute/example';
+const SHRINK = 'android.enableMinifyInReleaseBuilds=true\nandroid.enableShrinkResourcesInReleaseBuilds=true\n';
+const INSTALLS_CLIENT = 'override fun onCreate() {\n    OkHttpClientProvider.setOkHttpClientFactory { networkClient(applicationContext) }\n  }\n';
 const fixtures = [];
 
 afterEach(() => {
@@ -93,7 +97,10 @@ function app() {
   put('.gitignore', '.env.local\n.env.sentry-build-plugin\napp/android/keystore.properties\napp/src/build-info.ts\nfunctions/.secret.local\n*.jks\n*.keystore\n*service-account*.json\n*firebase-adminsdk*.json\nsentry.properties\n');
   put('app/app.json', { expo: { version: '0.2.1', android: { package: 'com.sabeelinstitute.example' }, ios: { bundleIdentifier: 'com.sabeelinstitute.example', buildNumber: '2001' } } });
   put('app/android/app/build.gradle', SIGNING + '        versionCode computedVersionCode\n        versionName expoVersion\n');
-  put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n  }\n}\n");
+  put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n    classpath('io.sentry:sentry-android-gradle-plugin:5.12.2')\n  }\n}\n");
+  put('app/android/gradle.properties', SHRINK);
+  put(`${JAVA}/NetworkClient.kt`, readFileSync(NETWORK_CLIENT, 'utf8').replace('{{package}}', 'com.sabeelinstitute.example'));
+  put(`${JAVA}/MainApplication.kt`, INSTALLS_CLIENT);
   put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL));
   put('.firebaserc', { projects: { default: 'example-project' } });
   put('app/metro.config.js', METRO);
@@ -318,6 +325,8 @@ describe('check-app', () => {
       expect.stringMatching(/does not cover functions\/\.secret\.local, which sabeel-ci writes for the emulators/),
       expect.stringMatching(/identifier/),
       expect.stringMatching(/no deploy-log entry for v0\.3\.0/),
+      expect.stringMatching(/java\/com\/example\/app\/NetworkClient\.kt is missing/),
+      expect.stringMatching(/java\/com\/example\/app\/MainApplication\.kt does not install the network client/),
       "app/google-services.json has no Android app com.example.app, app.json's package",
       "app/GoogleService-Info.plist is for com.sabeelinstitute.example, app.json's bundle id is <key>bad</key>",
       expect.stringMatching(/out of step/),
@@ -428,6 +437,41 @@ describe('check-app', () => {
     expect(problems(root)).toEqual(['.firebaserc has no "default" project alias (it has dev): firebase and the push checks use the default']);
   });
 
+  it('holds every release build to R8, a Sentry mapping upload, no backup and the shared network client', () => {
+    const { root, put } = app();
+    expect(androidReleaseProblems(root)).toEqual([]);
+    put('app/android/gradle.properties', 'android.enableMinifyInReleaseBuilds=false\n');
+    put('app/android/app/src/main/AndroidManifest.xml', MANIFEST(CHANNEL).replace('android:allowBackup="false"', 'android:allowBackup="true"'));
+    put(`${JAVA}/NetworkClient.kt`, readFileSync(NETWORK_CLIENT, 'utf8').replace('{{package}}', 'com.sabeelinstitute.example').replace('30L', '0L'));
+    put(`${JAVA}/MainApplication.kt`, 'override fun onCreate() {}\n');
+    expect(androidReleaseProblems(root)).toEqual([
+      expect.stringMatching(/does not set android\.enableMinifyInReleaseBuilds=true/),
+      expect.stringMatching(/does not set android\.enableShrinkResourcesInReleaseBuilds=true/),
+      expect.stringMatching(/does not set android:allowBackup="false"/),
+      expect.stringMatching(/NetworkClient\.kt differs from ci-tools' lib\/android\/NetworkClient\.kt \(package com\.sabeelinstitute\.example\)/),
+      expect.stringMatching(/MainApplication\.kt does not install the network client/),
+    ]);
+  });
+
+  it('holds the Sentry Android Gradle plugin to the version @sentry/react-native pairs, and to its setup', () => {
+    const { root, put } = app();
+    put('node_modules/@sentry/react-native/plugin/build/withSentryAndroidGradlePlugin.js', "exports.sentryAndroidGradlePluginVersion = '5.13.0';\n");
+    expect(androidReleaseProblems(root)).toEqual([
+      'app/android/build.gradle takes sentry-android-gradle-plugin 5.12.2; @sentry/react-native pairs its Android SDK with 5.13.0',
+    ]);
+    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.4')\n  }\n}\n");
+    const gradle = SIGNING.replace("environment('SENTRY_DOTENV_PATH', sentryBuildEnv.absolutePath)", "environment('SENTRY_AUTH_TOKEN', token)")
+      .replace('    telemetry = false\n', '') + '        versionCode computedVersionCode\n        versionName expoVersion\n';
+    put('app/android/app/build.gradle', gradle);
+    expect(androidReleaseProblems(root)).toEqual([
+      expect.stringMatching(/names no io\.sentry:sentry-android-gradle-plugin/),
+      "app/android/app/build.gradle's Sentry Android Gradle plugin setup does not hand sentry-cli the token file as SENTRY_DOTENV_PATH; "
+        + 'send Sentry no build telemetry (see README, "Its Android build")',
+    ]);
+    rmSync(join(root, `${JAVA}/NetworkClient.kt`));
+    expect(androidReleaseProblems(root)).toContainEqual(expect.stringMatching(/NetworkClient\.kt is missing: copy ci-tools' lib\/android\/NetworkClient\.kt there/));
+  });
+
   it("holds Android's default notification channel to the one the functions send on", () => {
     const { root, put } = app();
     put('app/android/app/src/main/AndroidManifest.xml', MANIFEST('<meta-data android:value="sabeel-alerts" android:name="com.google.firebase.messaging.default_notification_channel_id" />'));
@@ -492,9 +536,9 @@ describe('check-app', () => {
 
   it('holds the google-services Gradle plugin at one version', () => {
     const { root, put } = app();
-    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.2')\n  }\n}\n");
+    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('com.google.gms:google-services:4.4.2')\n    classpath('io.sentry:sentry-android-gradle-plugin:5.12.2')\n  }\n}\n");
     expect(problems(root)).toEqual(['app/android/build.gradle takes the google-services Gradle plugin at 4.4.2; every app builds with 4.4.4']);
-    put('app/android/build.gradle', 'buildscript {}\n');
+    put('app/android/build.gradle', "buildscript {\n  dependencies {\n    classpath('io.sentry:sentry-android-gradle-plugin:5.12.2')\n  }\n}\n");
     expect(problems(root)).toEqual(['app/android/build.gradle names no com.google.gms:google-services plugin; every app builds with 4.4.4']);
   });
 

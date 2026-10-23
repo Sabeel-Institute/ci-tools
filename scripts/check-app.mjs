@@ -289,6 +289,68 @@ export function vapidKeyProblems(root = '.') {
     + "of the project's Web Push certificate (Firebase console, Cloud Messaging). Browsers refuse to subscribe with it"];
 }
 
+/** The network client every app installs, with its package written in. */
+export const NETWORK_CLIENT = fileURLToPath(new URL('../lib/android/NetworkClient.kt', import.meta.url));
+
+/** The version @sentry/react-native pairs its Android SDK with, from its Expo plugin. */
+export function pairedSentryGradlePlugin(root = '.') {
+  const plugin = readIf(root, 'node_modules/@sentry/react-native/plugin/build/withSentryAndroidGradlePlugin.js');
+  return /sentryAndroidGradlePluginVersion\s*=\s*['"]([\w.-]+)['"]/.exec(plugin ?? '')?.[1];
+}
+
+/**
+ * The release build every app ships, one shape for all three: R8 shrinks it,
+ * Sentry's Android Gradle plugin uploads its mapping file (at the version
+ * @sentry/react-native pairs with, the token reaching sentry-cli as
+ * SENTRY_DOTENV_PATH), Android backs up none of its data, and every request
+ * goes through lib/android/NetworkClient.kt: a connect timeout, an HTTP/2 ping
+ * that finds a dead connection within a minute, and no ping on uploads.
+ */
+export function androidReleaseProblems(root = '.') {
+  const found = [];
+  const properties = readIf(root, 'app/android/gradle.properties') ?? '';
+  for (const name of ['android.enableMinifyInReleaseBuilds', 'android.enableShrinkResourcesInReleaseBuilds']) {
+    if (!new RegExp(`^${name.replaceAll('.', '\\.')}=true$`, 'm').test(properties)) {
+      found.push(`app/android/gradle.properties does not set ${name}=true: every app's release build is shrunk with R8`);
+    }
+  }
+  const manifest = readIf(root, MANIFEST) ?? '';
+  const application = /<application\b[^>]*>/.exec(manifest)?.[0] ?? '';
+  if (!/\bandroid:allowBackup="false"/.test(application)) {
+    found.push(`${MANIFEST}'s <application> does not set android:allowBackup="false": Android would copy the app's data, `
+      + 'the stored sign-in included, to Google Drive and restore it onto another phone');
+  }
+  const paired = pairedSentryGradlePlugin(root);
+  const taken = /io\.sentry:sentry-android-gradle-plugin:([\w.-]+)/.exec(readIf(root, 'app/android/build.gradle') ?? '')?.[1];
+  if (!taken) found.push('app/android/build.gradle names no io.sentry:sentry-android-gradle-plugin, which uploads each release\'s R8 mapping file');
+  else if (paired && taken !== paired) {
+    found.push(`app/android/build.gradle takes sentry-android-gradle-plugin ${taken}; @sentry/react-native pairs its Android SDK with ${paired}`);
+  }
+  const gradle = readIf(root, 'app/android/app/build.gradle') ?? '';
+  const asks = [
+    [/^apply plugin: "io\.sentry\.android\.gradle"$/m, 'apply plugin: "io.sentry.android.gradle"'],
+    [/autoUploadProguardMapping = sentryBuildEnv\.exists\(\) && System\.getenv\('SENTRY_DISABLE_AUTO_UPLOAD'\) != 'true'/, 'upload mapping files only under the sentry.gradle gate'],
+    [/environment\('SENTRY_DOTENV_PATH', sentryBuildEnv\.absolutePath\)/, "hand sentry-cli the token file as SENTRY_DOTENV_PATH"],
+    [/autoInstallation \{\s*enabled = false\s*\}/, 'install no second Sentry SDK (autoInstallation off)'],
+    [/telemetry = false/, 'send Sentry no build telemetry'],
+  ];
+  const missing = asks.filter(([pattern]) => !pattern.test(gradle)).map(([, what]) => what);
+  if (missing.length) found.push(`app/android/app/build.gradle's Sentry Android Gradle plugin setup does not ${missing.join('; ')} (see README, "Its Android build")`);
+  const pkg = JSON.parse(readIf(root, 'app/app.json') ?? '{}').expo?.android?.package;
+  if (pkg) {
+    const dir = `app/android/app/src/main/java/${pkg.replaceAll('.', '/')}`;
+    const expected = readFileSync(NETWORK_CLIENT, 'utf8').replace('{{package}}', pkg);
+    const client = readIf(root, `${dir}/NetworkClient.kt`);
+    if (client === undefined) found.push(`${dir}/NetworkClient.kt is missing: copy ci-tools' lib/android/NetworkClient.kt there, with package ${pkg}`);
+    else if (client !== expected) found.push(`${dir}/NetworkClient.kt differs from ci-tools' lib/android/NetworkClient.kt (package ${pkg})`);
+    if (!(readIf(root, `${dir}/MainApplication.kt`) ?? '').includes('OkHttpClientProvider.setOkHttpClientFactory { networkClient(applicationContext) }')) {
+      found.push(`${dir}/MainApplication.kt does not install the network client before React Native starts: `
+        + 'OkHttpClientProvider.setOkHttpClientFactory { networkClient(applicationContext) }');
+    }
+  }
+  return found;
+}
+
 /** The google-services Gradle plugin every app builds with. */
 export const GOOGLE_SERVICES_PLUGIN = '4.4.4';
 
@@ -450,6 +512,7 @@ export function problems(root = '.') {
     return version === GOOGLE_SERVICES_PLUGIN ? []
       : [`app/android/build.gradle ${version ? `takes the google-services Gradle plugin at ${version}` : 'names no com.google.gms:google-services plugin'}; every app builds with ${GOOGLE_SERVICES_PLUGIN}`];
   });
+  attempt(() => androidReleaseProblems(root));
   attempt(() => hostingProblems(root));
   attempt(() => firebaseConfigProblems(root));
   attempt(() => pushChannelProblems(root));
