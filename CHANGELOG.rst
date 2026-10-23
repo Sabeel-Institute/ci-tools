@@ -4,6 +4,9 @@ Changelog
 Unreleased
 ----------
 
+- ``ci-functions warm`` reads the bundle the emulators already built instead
+  of building it again: a rebuild under running emulators made them reload
+  every function, discarding the workers it had just started.
 - The APK on a GitHub release is the universal one Google Play generated
   from the published bundle, signed exactly as Play installs it
   (``play-apk``, refusing any signer but ``release.appSigningCertificate``),
