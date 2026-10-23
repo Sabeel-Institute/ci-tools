@@ -9,8 +9,9 @@ import { androidIdentity } from '../lib/version.mjs';
 
 /**
  * Put the release bundle on Google Play's internal testing track. Every app
- * publishes this one way: from a release machine (`sabeel-ci release --ship`
- * runs it last) and from the Publish Android workflow (`ci-play release`).
+ * publishes this one way: the Publish Android workflow (`ci-play release`),
+ * which `sabeel-ci release --ship` runs on CI's bundle, and by hand from a
+ * release machine.
  *
  *   sabeel-ci publish-play --check      # every gate, and the Play permission; uploads nothing
  *   sabeel-ci publish-play --internal   # publish: everyone on the tester list gets it
@@ -188,6 +189,13 @@ export function playApi(token, packageName, request = fetch) {
     call: (method, path, body) => send(method, `${API}${app}${path}`, body && JSON.stringify(body), body && 'application/json', 60_000),
     // Tens of megabytes; the API asks for a raised timeout.
     upload: (edit, bundle) => send('POST', `${API}/upload${app}/edits/${edit}/bundles?uploadType=media`, bundle, 'application/octet-stream', 15 * 60_000),
+    /** A file's bytes, such as a generated APK's `:download?alt=media`. */
+    download: async (path) => {
+      const response = await request(`${API}${app}${path}`, { method: 'GET', signal: AbortSignal.timeout(15 * 60_000),
+        headers: { authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error(`GET ${path}: HTTP ${response.status}\n${(await response.text()).slice(0, 500)}`);
+      return Buffer.from(await response.arrayBuffer());
+    },
   };
 }
 

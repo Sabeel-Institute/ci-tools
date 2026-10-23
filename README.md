@@ -63,7 +63,8 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 |---|---|
 | `release <X.Y.Z> [--notes <entry.md>] [--dry-run]` | Open the release pull request from origin/main: the version, the iOS build number, the manual (its version line and PDF, through `render-manual`) and the deploy-log entry |
 | `render-manual` | `docs/USER-MANUAL.md` to `docs/USER-MANUAL.pdf` with Chrome: a cover with the Sabeel logo (`app/assets/logo.png`), `app.json`'s name less "Sabeel Institute" or "Sabeel", its version and this month; refuses a manual whose "*For app version X.Y.Z · <Month YYYY>*" line names another version. Screenshot pairs are a `<div class="pair">` of a `figure.ph` (phone, first) and a `figure.wd` (computer), printed side by side with the phone on the left; images relative to `docs/`. Python (`scripts/lib/render-manual.py`, PEP 723), run with `uv run --script`; needs `uv` and `google-chrome` |
-| `release --ship` | On main once the owner has merged it: wait for the Android workflow's build of the commit and refuse one that failed, have Publish Android check CI's bundle and Play's permission, build the APKs here with the bundle's key and cold-start the universal one, tag (the GitHub release, with the APKs and the manual), then have Publish Android upload CI's bundle to Play internal testing |
+| `release --ship` | On main once the owner has merged it, building and signing nothing here: wait for the Android workflow's build of the commit and refuse one that failed; have Publish Android check CI's bundle and Play's permission, then upload it to Play internal testing; fetch the universal APK Play signs from it (`play-apk`) and cold-start it; last, the GitHub release (the tag) with that APK and the manual |
+| `play-apk <out.apk>` | The universal APK Play generated from the published bundle of `app.json`'s version, signed exactly as Play installs it; refuses any signer but `release.appSigningCertificate`. Lists and downloads only |
 | `publish-play --check\|--internal` | The release bundle to Play internal testing: refuses one not signed with a release key, not HEAD's clean commit or not `app.json`'s version; uploads a draft and completes it only once Play signs the APKs phones install with `release.appSigningCertificate`. `--check` runs the gates and proves the Play permission |
 | `check-ios-config` | The iOS configuration that otherwise fails at upload, review or runtime: the plist against `app.json` and the Firebase project, plugins, export compliance, version and build number, icon, the native Sentry DSN, privacy manifest |
 | `build-ios [--check]` | On a Mac: every gate (the Sentry token among them), then archive and export a signed App Store `.ipa` to `build/ios/export`, its symbols uploaded to `ci-tools.json`'s native project; never uploads the app. `--check` runs the gates and builds nothing |
@@ -234,7 +235,7 @@ run without what makes a crash readable. Pull-request builds need none of it.
   }
   ```
 
-  `build-aab` and `release --ship` run Gradle with `SENTRY_ORG` and
+  `build-aab` runs Gradle with `SENTRY_ORG` and
   `SENTRY_PROJECT` from `ci-tools.json`; `sentry.gradle` uploads the bundle's
   source map with the file's token. `ci-platform prepare-android` writes the
   file from `BUILD_ENV`.
@@ -368,8 +369,9 @@ flowchart LR
   M --> C["Android workflow<br/>(signed bundle, five cold starts)"]
   M --> S["sabeel-ci release --ship"]
   C -- "its bundle" --> S
-  S --> G["GitHub release vX.Y.Z<br/>(the tag, APKs, manual)"]
   S -- "Publish Android" --> Y[Play internal testing]
+  Y -- "the APK Play signs" --> S
+  S --> G["GitHub release vX.Y.Z<br/>(the tag, Play's APK, manual)"]
   S -. "then Deploy Web, and the iOS workflow on the tag" .-> W[web and TestFlight]
 ```
 
@@ -379,8 +381,15 @@ pull request and the GitHub release. Play gets the bundle CI built from the
 merged commit, never one built on a laptop: the Android workflow signs it in
 the `release-build` environment and cold-starts it five times on an emulator,
 and Publish Android checks its provenance, checksum, signature and version
-before uploading it. `--ship` prints the two workflow runs that put the same
-commit on the web and on iPhones.
+before uploading it. The APK on the GitHub release is the universal one Play
+generated from that bundle, signed exactly as Play installs it, so a sideloaded
+install and Play's update each other, and no signing key is needed on the
+owner's machine. The GitHub release comes last, made as a draft and then
+published, which creates the tag: the APK exists only once Play has the bundle,
+so a tagged release always holds its notes, its APK and its manual and names a
+version testers have. A failure before that leaves no tag, and shipping again
+resumes. `--ship` prints the two workflow runs that put the same commit on the
+web and on iPhones.
 
 The web goes out through Deploy Web only: it publishes a build of main whose
 source maps it has uploaded to Sentry first. A local `firebase deploy --only
