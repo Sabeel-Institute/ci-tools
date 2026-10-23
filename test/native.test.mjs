@@ -29,6 +29,13 @@ function android(gradle) {
 describe('the native flows', () => {
   const workflow = renderAll(full).get('native.yml');
 
+  it('call every emulated callable once after the seed, so no flow waits on a cold function', () => {
+    const at = (text) => runner.indexOf(text);
+    expect(at('ci-functions.mjs" warm')).toBeGreaterThan(at('node "$SEED"'));
+    expect(at('ci-functions.mjs" warm')).toBeLessThan(at('exec npx expo start --port "$METRO_PORT"'));
+    expect(runner).toMatch(/ci-functions\.mjs" warm [^\n]*\\\n\s+\|\| \{ echo "native-e2e: the emulated functions did not all start/);
+  });
+
   it('run on every main push and release tag, all of them, and keep what they saw', () => {
     expect(workflow).toMatch(/push:\n {4}branches: \[main\]\n {4}tags: \['v\*'\]/);
     expect(workflow).toContain('run: sabeel-ci ci-avd');

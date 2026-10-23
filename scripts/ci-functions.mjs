@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from '../lib/config.mjs';
+import { emulatorProject, ports } from '../lib/ports.mjs';
 
 /**
  * The guards around a functions deploy, the same from a terminal as from
@@ -11,6 +13,7 @@ import { fileURLToPath } from 'node:url';
  *   sabeel-ci ci-functions plan              # build; refuse to delete a live function
  *   sabeel-ci ci-functions verify --since T  # after a deploy: callables, probe, error logs
  *   sabeel-ci ci-functions health            # every callable answers (no credentials)
+ *   sabeel-ci ci-functions warm              # every callable on the local emulators, once
  *
  * The project is FIREBASE_PROJECT_ID, or for `health` the default in
  * .firebaserc. Google calls go through gcloud's active credentials: the
@@ -120,23 +123,24 @@ function plan() {
   if (added.length) console.log(`New functions, created by this deploy: ${added.join(', ')}`);
 }
 
-async function call(url, init, attempts = 4) {
+async function call(url, init, { attempts = 4, timeout = 60_000 } = {}) {
   for (let attempt = 1; ; attempt += 1) {
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(60_000) }).catch((error) => ({ error }));
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeout) }).catch((error) => ({ error }));
     const retry = response.error || response.status === 429 || response.status >= 500;
     if (!retry || attempt === attempts) return response;
     await new Promise((done) => setTimeout(done, attempt * 5_000));
   }
 }
 
-/** Every callable, called with no arguments: each must answer for itself. */
-async function probeCallables(id, endpoints) {
+/** Every callable, called with no arguments at the address `url` gives it: each must answer for itself. */
+async function probeCallables(endpoints, url, options) {
   const problems = [];
   const callables = endpoints.filter((endpoint) => endpoint.kind === 'callable');
   for (let i = 0; i < callables.length; i += 6) {
-    await Promise.all(callables.slice(i, i + 6).map(async ({ name, region }) => {
-      const response = await call(`https://${region}-${id}.cloudfunctions.net/${name}`,
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"data":{}}' });
+    await Promise.all(callables.slice(i, i + 6).map(async (endpoint) => {
+      const { name } = endpoint;
+      const response = await call(url(endpoint),
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"data":{}}' }, options);
       const body = response.error ? '' : await response.text();
       if (response.error || !callableAnswered(response.headers.get('content-type'), body)) {
         problems.push(`${name} did not answer for itself (${response.error?.message ?? `${response.status} ${body.replace(/\s+/g, ' ').slice(0, 80)}`})`);
@@ -158,8 +162,29 @@ async function probeCallables(id, endpoints) {
 async function health() {
   const id = JSON.parse(readFileSync('.firebaserc', 'utf8')).projects?.default;
   if (!id) throw new Error('.firebaserc names no default project');
-  const problems = await probeCallables(id, loadEndpoints());
+  const problems = await probeCallables(loadEndpoints(), production(id));
   if (problems.length) throw new Error(`${id}'s functions are failing:\n- ${problems.join('\n- ')}`);
+}
+
+const production = (id) => ({ name, region }) => `https://${region}-${id}.cloudfunctions.net/${name}`;
+
+/**
+ * Every callable on the local emulators, once, before the native flows. The
+ * Functions emulator starts a function's worker on its first call, and on a
+ * busy CI Mac that took longer than a flow waits: LMS's iPhone run sat on
+ * "Sending the link…" for over 30 s on 2026-10-22. A worker stays up once
+ * started, so the flows meet functions that answer at once. Each is allowed
+ * the emulator's own 120 s to load (FUNCTIONS_DISCOVERY_TIMEOUT).
+ */
+async function warm() {
+  const settings = config();
+  const port = ports(settings).functions;
+  const project = emulatorProject(settings);
+  const started = Date.now();
+  const problems = await probeCallables(loadEndpoints(),
+    ({ name, region }) => `http://127.0.0.1:${port}/${project}/${region}/${name}`, { attempts: 2, timeout: 120_000 });
+  if (problems.length) throw new Error(`The emulated functions did not all start:\n- ${problems.join('\n- ')}`);
+  console.log(`Warmed in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
 async function verify() {
@@ -167,7 +192,7 @@ async function verify() {
   const since = process.argv[process.argv.indexOf('--since') + 1];
   if (!process.argv.includes('--since') || Number.isNaN(Date.parse(since))) throw new Error('verify needs --since <ISO time the deploy started>');
   const endpoints = loadEndpoints();
-  const problems = await probeCallables(id, endpoints);
+  const problems = await probeCallables(endpoints, production(id));
 
   const probe = endpoints.find((endpoint) => endpoint.name === 'probeQueries');
   if (probe) {
@@ -205,5 +230,6 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   else if (task === 'plan') plan();
   else if (task === 'verify') await verify();
   else if (task === 'health') await health();
-  else throw new Error('Unknown functions task: use require-ci, plan, verify or health');
+  else if (task === 'warm') await warm();
+  else throw new Error('Unknown functions task: use require-ci, plan, verify, health or warm');
 }

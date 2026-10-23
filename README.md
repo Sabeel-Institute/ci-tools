@@ -78,6 +78,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
 | `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
+| `ci-functions warm` | Every callable on the local emulators, once, so each function's worker is up; `native-e2e` runs it after the seed |
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `android`, `ios` |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
