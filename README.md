@@ -36,7 +36,7 @@ root, the directory holding `ci-tools.json`.
 | Command | What it does |
 |---|---|
 | `build-info` | Stamp `app/src/build-info.ts` with `app.json`'s version and the commit, `+` when the tree is dirty, for the sign-in label |
-| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear` into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself. `--source-maps` writes the maps beside the scripts and requires each script to hand its debug id to the Sentry SDK, as the release build does |
+| `build-web [--source-maps \| --emulators]` | The web export: version check, stamp, `expo export --clear`, tree-shaken, into `app/dist-web`, which must carry the stamp. Refuses while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or in a dotenv file in `app/` (`app/.env*`); `--emulators` builds for the emulators on purpose and sets it itself. `--source-maps` writes the maps beside the scripts and requires each script to hand its debug id to the Sentry SDK, as the release build does |
 | `build-aab [--check]` | The signed Play bundle: version check, a deploy-log entry for the version, Sentry set up (the native DSN, the token, `build.gradle`'s `sentry.gradle`), stamp, `gradlew bundleRelease` with `ci-tools.json`'s Sentry org and native project, then no unsigned or debug-signed bundle; refuses while `EXPO_PUBLIC_USE_EMULATORS` is set, as `build-web` does; `--check` stops before the build |
 | `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
@@ -290,6 +290,14 @@ for an app's own scripts. Each app's `package.json` runs them too:
 | `web:export` (in `app/`) | `sabeel-ci build-web`, for pre-merge builds and Hosting's predeploy |
 | `build:aab` | `sabeel-ci build-aab` |
 | `start`, `android` (in `app/`) | `sabeel-ci build-info && sabeel-ci preflight-metro && expo …` |
+
+Every web export is tree-shaken (Expo's `EXPO_UNSTABLE_TREE_SHAKING`, with
+its graph optimisation): without it Metro bundles every module an import
+reaches, used or not, all of Sentry's replay and feedback code among it. An
+app's browser suites must therefore run on `build-web --emulators`, the same
+tree-shaken build pointed at the emulators, never only on a dev server, which
+does not tree-shake: a module wrongly shaken out would otherwise first fail on
+the live site.
 
 `ci-platform android` and `ci-platform web` call `build-aab` and `build-web`,
 then refuse a bundle or export that does not carry HEAD's commit or marks it

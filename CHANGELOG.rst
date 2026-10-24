@@ -4,6 +4,12 @@ Changelog
 Unreleased
 ----------
 
+- ``build-web`` tree-shakes every web export, ``--emulators`` included.
+  Metro otherwise bundles every module an import reaches, used or not; with
+  named Sentry imports it took Kanban's bundle from 904 KB to 622 KB
+  gzipped. Expo still calls the switches unstable: Kanban's and the Time
+  Tracker's browser suites passed in full on tree-shaken builds first, and
+  each app's suites run on one from now on.
 - ``icons`` and ``lib/icons.mjs``: an app's icon font cut to the Material
   Icons glyphs it names, and ``iconProblems()`` for its unit tests, which
   fails when the font lags the list or does not draw a glyph the map names.
