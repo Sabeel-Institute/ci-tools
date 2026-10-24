@@ -41,6 +41,7 @@ root, the directory holding `ci-tools.json`.
 | `check-version` | `app.json`'s version is store-legal, and Android's versionName and versionCode follow from it |
 | `deploy-notes <version> [--title]` | A release's notes, from the deploy log in `docs/PHASE_STATUS.md` |
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
+| `icons` | Write `app/src/icons/glyphmap.json` and `icons.ttf` from `names.json`: the Material Icons glyphs the app names, cut from the `@expo/vector-icons` it installs (see "Icons" below) |
 | `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
 
 ### Dependency updates
@@ -294,6 +295,25 @@ for an app's own scripts. Each app's `package.json` runs them too:
 then refuse a bundle or export that does not carry HEAD's commit or marks it
 `+`. The deploy log is `docs/PHASE_STATUS.md`, with one entry per release
 headed `### <date> — <summary> — v<version>`, written with the version bump.
+
+## Icons
+
+An app that draws Material Icons ships a font holding only the glyphs it
+names, not the stock `@expo/vector-icons` set. That font is 2,234 glyphs
+(156 KB over the wire), and the web fetches it only once the first icon
+mounts, after the bundle. `@expo/vector-icons` gives it 12 s, and on a slow
+connection every icon on screen stayed blank.
+
+The app keeps three files in `app/src/icons/`: `names.json`, written by
+hand, and `glyphmap.json` and `icons.ttf`, written from it by `sabeel-ci
+icons` and committed. Its `Icon` comes from
+`createIconSet(glyphMap, <family>, font)`, and its icon-name type is the
+glyph map's keys, so a name missing from the list fails the type check.
+Its unit tests call `iconProblems()` from `lib/icons.mjs`, which fails when
+the list is unsorted or repeats a name, when either written file differs from
+what the list makes today, or when the font does not draw a glyph the map
+names (read from the font's own `cmap` and `loca`). Its lint refuses the
+stock sets.
 
 ## Cloud Functions in production
 
