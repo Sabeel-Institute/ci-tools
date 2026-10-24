@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "pixelmatch": "^8.0.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "subset-font": "^2.9.0"
   },
   "devDependencies": {
     "vitest": "^5.0.5"

@@ -4,6 +4,11 @@ Changelog
 Unreleased
 ----------
 
+- ``icons`` and ``lib/icons.mjs``: an app's icon font cut to the Material
+  Icons glyphs it names, and ``iconProblems()`` for its unit tests, which
+  fails when the font lags the list or does not draw a glyph the map names.
+  The stock font is 156 KB over the wire, and on a slow connection it missed
+  ``@expo/vector-icons``' 12 s and left every icon blank.
 - ``play-apk`` refuses an APK carrying Play's installer check, which Play
   Console's automatic protection adds: installed by anything but Play, it
   asks for Google Play and does not open, so the release check and a
