@@ -56,6 +56,7 @@ fs.writeFileSync('app/build/outputs/bundle/release/app-release.aab', fs.readFile
   put('bin/npx', `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.appendFileSync('../calls.log', 'npx ' + process.argv.slice(2).join(' ')
+  + (process.env.EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH === '1' && process.env.EXPO_UNSTABLE_TREE_SHAKING === '1' ? ' (tree-shaken)' : '')
   + (process.env.EXPO_PUBLIC_USE_EMULATORS ? ' EXPO_PUBLIC_USE_EMULATORS=' + process.env.EXPO_PUBLIC_USE_EMULATORS : '') + '\\n');
 fs.mkdirSync('dist-web/_expo/static/js/web', { recursive: true });
 fs.writeFileSync('dist-web/index.html', '<div id="root"></div><script src="/_expo/static/js/web/entry.js" defer></script>');
@@ -302,10 +303,11 @@ describe('build-web', () => {
     const result = test.run('build-web');
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`app/dist-web: v0.2.0 · ${test.commit()}`);
-    test.run('build-web', ['--source-maps']);
+    // Tree-shaken always: a shell cannot turn it off for one build.
+    test.run('build-web', ['--source-maps'], { EXPO_UNSTABLE_TREE_SHAKING: '0' });
     expect(test.calls()).toEqual([
-      'npx --no-install expo export --platform web --output-dir dist-web --clear',
-      'npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps',
+      'npx --no-install expo export --platform web --output-dir dist-web --clear (tree-shaken)',
+      'npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps (tree-shaken)',
     ]);
     for (const args of [['--maps'], ['--source-maps', '--emulators'], ['--emulators', '--emulators']]) {
       const usage = test.run('build-web', args);
@@ -334,7 +336,7 @@ describe('build-web', () => {
     test.put('app/.env.local', `EXPO_PUBLIC_SENTRY_DSN_WEB=${dsn}\n# EXPO_PUBLIC_USE_EMULATORS=1\n`);
     test.put('app/.env.development', 'EXPO_PUBLIC_USE_EMULATORS=\n');
     expect(test.run('build-web', [], { EXPO_PUBLIC_USE_EMULATORS: '' }).status).toBe(0);
-    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear']);
+    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear (tree-shaken)']);
   });
 
   it('builds for the emulators only when asked to, setting the flag itself', () => {
@@ -344,7 +346,7 @@ describe('build-web', () => {
     expect(asked.stdout).toContain(`app/dist-web: v0.2.0 · ${test.commit()} · for the emulators`);
     test.put('app/.env.local', 'EXPO_PUBLIC_USE_EMULATORS=1\n');
     expect(test.run('build-web', ['--emulators'], { EXPO_PUBLIC_USE_EMULATORS: 'yes' }).status).toBe(0);
-    expect(test.calls()).toEqual(Array(2).fill('npx --no-install expo export --platform web --output-dir dist-web --clear EXPO_PUBLIC_USE_EMULATORS=1'));
+    expect(test.calls()).toEqual(Array(2).fill('npx --no-install expo export --platform web --output-dir dist-web --clear (tree-shaken) EXPO_PUBLIC_USE_EMULATORS=1'));
   });
 
   it('with --source-maps, requires each script to hand its debug id to the Sentry SDK and match its map', () => {
@@ -398,7 +400,7 @@ describe('ci-platform builds', () => {
   it('build the web export through build-web, with its source maps beside the site, and check its commit', () => {
     const test = app();
     expect(test.run('ci-platform', ['web'], env).stderr).toBe('');
-    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps']);
+    expect(test.calls()).toEqual(['npx --no-install expo export --platform web --output-dir dist-web --clear --source-maps (tree-shaken)']);
     const record = JSON.parse(test.read('runner/web-artifact/build-record.json'));
     expect(Object.keys(record.files)).toEqual(['_expo/static/js/web/entry.js', 'index.html']);
     expect(Object.keys(record.sourceMaps)).toEqual(['_expo/static/js/web/entry.js', '_expo/static/js/web/entry.js.map']);

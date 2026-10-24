@@ -29,8 +29,20 @@ import { debugIdProblems } from './lib/sentry.mjs';
  * stamped commit, or the sign-in label of what ships would be wrong. With
  * source maps, each script Metro wrote must carry its debug id into the Sentry
  * SDK and match its map (debugIdProblems), as the release build requires.
+ *
+ * Every export is tree-shaken (TREE_SHAKING), the emulator build included, so
+ * the browser suites run the code that ships. Without it Metro bundles every
+ * module an import reaches, used or not: all of Sentry, its session replay and
+ * feedback widget among it, though the apps report errors only. Measured on
+ * Kanban, it took the bundle from 904 KB to 622 KB gzipped together with
+ * named Sentry imports. Expo still calls the switches unstable; the apps'
+ * browser suites passed in full on tree-shaken builds before it was turned
+ * on, and they run on one in CI from then on.
  */
 export const WEB_EXPORT = 'app/dist-web';
+
+/** Expo's tree shaking, which needs its graph optimisation too. */
+export const TREE_SHAKING = { EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH: '1', EXPO_UNSTABLE_TREE_SHAKING: '1' };
 
 /** The export's JavaScript files, as paths under the working directory. */
 export function exportedScripts(directory = WEB_EXPORT) {
@@ -48,7 +60,8 @@ export function buildWeb({ sourceMaps = false, emulators = false } = {}) {
   if (failure) throw new Error(failure);
   const { commit } = writeBuildInfo();
   execFileSync('npx', ['--no-install', 'expo', 'export', '--platform', 'web', '--output-dir', 'dist-web', '--clear',
-    ...(sourceMaps ? ['--source-maps'] : [])], { cwd: 'app', stdio: 'inherit', env: emulators ? { ...process.env, [EMULATOR_FLAG]: '1' } : process.env });
+    ...(sourceMaps ? ['--source-maps'] : [])], { cwd: 'app', stdio: 'inherit',
+    env: { ...process.env, ...TREE_SHAKING, ...(emulators ? { [EMULATOR_FLAG]: '1' } : {}) } });
   if (!exportedScripts().some((path) => readFileSync(path).includes(commit))) {
     throw new Error(`${WEB_EXPORT} does not carry the stamped commit ${commit}: the sign-in label would be wrong`);
   }
