@@ -61,6 +61,39 @@ stop_tree() { # stop_tree <pid>: TERM the pid and everything under it, then KILL
   kill -9 $pids 2>/dev/null || true
 }
 
+# One line every 20 s: memory, swap, disk, load and the largest processes by
+# role. A GitHub runner that runs out of memory is shut down mid-step, before
+# any later step (the artifact upload included) can run, so in CI the line goes
+# to the job's log as well, which GitHub keeps as it streams.
+sample_resources() {
+  set +e +o pipefail
+  local memory load disk largest
+  while :; do
+    if [ -r /proc/meminfo ]; then
+      memory=$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } /^SwapTotal:/ { st = $2 } /^SwapFree:/ { sf = $2 }
+        END { printf "memory %.1f of %.1f GB available, swap %.1f GB used", a / 1048576, t / 1048576, (st - sf) / 1048576 }' /proc/meminfo)
+      load=$(cut -d' ' -f1-3 /proc/loadavg)
+    else
+      memory="memory $(memory_pressure -Q 2>/dev/null | sed -n 's/.*free percentage: //p') free"
+      load=$(sysctl -n vm.loadavg | tr -d '{}' | xargs)
+    fi
+    disk=$(df -Pk . | awk 'NR == 2 { printf "disk %.1f GB free", $4 / 1048576 }')
+    largest=$(ps -Ao rss=,args= | sort -rn | head -7 | awk '{
+        rss = $1; $1 = ""; n = split($2, path, "/"); role = path[n]
+        if ($0 ~ /GradleDaemon/) role = "gradle"
+        else if ($0 ~ /KotlinCompileDaemon/) role = "kotlin-daemon"
+        else if ($0 ~ /cloud-firestore-emulator/) role = "firestore"
+        else if ($0 ~ /qemu-system/) role = "avd"
+        else if ($0 ~ /maestro/) role = "maestro"
+        else if ($0 ~ /expo start/) role = "metro"
+        else if ($0 ~ /firebase|emulators\.mjs/) role = "firebase"
+        else if ($0 ~ /weed/) role = "seaweedfs"
+        printf "%s%s %.1f", (NR > 1 ? ", " : ""), role, rss / 1048576 }')
+    printf '[resources %s] %s, %s, load %s | largest (GB): %s\n' "$(date -u +%H:%M:%S)" "$memory" "$disk" "$load" "$largest"
+    sleep 20
+  done
+}
+
 if [ "$PLATFORM" = android ]; then
   APP_ID=$(node --input-type=module -e "import { debugAppId } from '$CI_TOOLS/scripts/lib/android-app.mjs'; process.stdout.write(debugAppId())")
   devices=$(adb devices | sed -n 's/\tdevice$//p')
@@ -81,24 +114,11 @@ done
 rm -rf "$OUT"
 mkdir -p "$LOGS"
 
-node "$CI_TOOLS/scripts/build-info.mjs"
-if [ "$PLATFORM" = android ]; then
-  echo "Building the debug APK…"
-  ( cd app/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 --quiet )
-  apk=$(find app/android/app/build/outputs/apk/debug -name '*.apk' | grep -E 'x86_64|app-debug' | head -1)
-  adb install -r "$apk" >/dev/null 2>&1 || { adb uninstall "$APP_ID" >/dev/null 2>&1 || true; adb install "$apk" >/dev/null; }
-  echo "Installed $apk"
-else
-  echo "Building the debug app for the iOS simulator…"
-  DEVICE=$(bash "$CI_TOOLS/scripts/ios-sim-build.sh" "$OUT/ios-build")
-  echo "Installed $APP_ID on simulator $DEVICE"
-fi
-
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 cleanup() {
   local rc=$? pid
   trap - EXIT INT TERM HUP
-  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}"; do
+  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${RESOURCES_PID:-}"; do
     [ -z "$pid" ] || stop_tree "$pid"
   done
   # The Firebase CLI's own logs: why a function failed to load, which its
@@ -113,6 +133,25 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
+
+(
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then sample_resources | tee -a "$LOGS/resources.log"
+  else sample_resources >>"$LOGS/resources.log"; fi
+) &
+RESOURCES_PID=$!
+
+node "$CI_TOOLS/scripts/build-info.mjs"
+if [ "$PLATFORM" = android ]; then
+  echo "Building the debug APK…"
+  ( cd app/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 --quiet )
+  apk=$(find app/android/app/build/outputs/apk/debug -name '*.apk' | grep -E 'x86_64|app-debug' | head -1)
+  adb install -r "$apk" >/dev/null 2>&1 || { adb uninstall "$APP_ID" >/dev/null 2>&1 || true; adb install "$apk" >/dev/null; }
+  echo "Installed $apk"
+else
+  echo "Building the debug app for the iOS simulator…"
+  DEVICE=$(bash "$CI_TOOLS/scripts/ios-sim-build.sh" "$OUT/ios-build")
+  echo "Installed $APP_ID on simulator $DEVICE"
+fi
 
 wait_for() { # wait_for <url> <label> <tries>
   for _ in $(seq 1 "$3"); do

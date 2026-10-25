@@ -68,6 +68,17 @@ describe('the native flows', () => {
     expect(workflow).not.toContain('name: Emulator secret placeholders');
   });
 
+  it('report memory, disk and the largest processes from before the build, into the job log in CI', () => {
+    const at = (text) => runner.indexOf(text);
+    // A runner that runs out of memory is shut down before the artifact upload.
+    expect(runner).toMatch(/if \[ "\$\{GITHUB_ACTIONS:-\}" = true \]; then sample_resources \| tee -a "\$LOGS\/resources\.log"/);
+    expect(at('RESOURCES_PID=$!')).toBeLessThan(at('./gradlew assembleDebug'));
+    expect(at('RESOURCES_PID=$!')).toBeLessThan(at('ios-sim-build.sh'));
+    // Stopped on every exit, a failed build's included.
+    expect(at('trap cleanup EXIT')).toBeLessThan(at('RESOURCES_PID=$!'));
+    expect(runner).toMatch(/for pid in [^\n]*"\$\{RESOURCES_PID:-\}"; do/);
+  });
+
   it("seed the emulators with the app's one seed script, and refuse to run without it", () => {
     expect(runner).toContain('SEED=scripts/seed-emulators.mjs\n');
     expect(runner).toMatch(/\[ -f "\$SEED" \] \|\| \{ echo "native-e2e: no \$SEED/);

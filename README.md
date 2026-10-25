@@ -100,7 +100,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
-| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver |
+| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 
