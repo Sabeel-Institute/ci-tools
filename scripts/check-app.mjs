@@ -563,8 +563,15 @@ export function problems(root = '.') {
     if (!existsSync(manifest)) return [];
     const { dependencies, devDependencies } = JSON.parse(readFileSync(manifest, 'utf8'));
     const lock = JSON.parse(readFileSync(resolve(root, 'functions/package-lock.json'), 'utf8')).packages[''];
-    return JSON.stringify([lock.dependencies, lock.devDependencies]) === JSON.stringify([dependencies, devDependencies])
-      ? [] : ['functions/package-lock.json is out of step with functions/package.json (Cloud Build installs from that lock): run npx sabeel-ci sync-functions-lock'];
+    return [
+      // Without the dependency, Google's buildpack installs a framework of its
+      // own choosing, from its own lock: the code that parses every request
+      // would sit outside functions/package-lock.json and Dependabot.
+      ...(dependencies?.['@google-cloud/functions-framework'] ? [] : [
+        'functions/package.json does not depend on @google-cloud/functions-framework: Cloud Build then installs its own copy, which serves every request from outside functions/package-lock.json and Dependabot']),
+      ...(JSON.stringify([lock.dependencies, lock.devDependencies]) === JSON.stringify([dependencies, devDependencies])
+        ? [] : ['functions/package-lock.json is out of step with functions/package.json (Cloud Build installs from that lock): run npx sabeel-ci sync-functions-lock']),
+    ];
   });
   return found;
 }

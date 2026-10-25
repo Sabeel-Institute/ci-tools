@@ -28,7 +28,7 @@ root, the directory holding `ci-tools.json`.
 
 | Command | What it does |
 |---|---|
-| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, no port stated in `scripts/` or `package.json`, and no other emulator project named there, in `firebase.json`, `.firebaserc` or `functions/.env*`; `functions/package-lock.json` in step with its manifest; the Firebase app config committed (`app/google-services.json`, the identical `app/android/app/google-services.json`, `app/GoogleService-Info.plist`), naming the app's package, bundle id and `.firebaserc` project, since no secret writes it; Sentry set up as "Sentry" below says; the web push key committed as `VAPID_PUBLIC_KEY` in `app/src/firebase-config.ts`, a P-256 public key; the Hosting site with its predeploy, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
+| `check-app` | The app meets what these tools assume: a valid `ci-tools.json`; the rendered workflows unchanged; signing secrets read only inside the `release-build` environment and every release checking its owner first, in the app's own workflows too; `.gitignore` covering the files CI writes from secrets, the build stamp and `functions/.secret.local` (never committed); no `github-actions` entry in the app's `.github/dependabot.yml`; identifiers the pre-merge fixtures accept; the version written only in `app/app.json` (Gradle derives Android's; the iOS build number and the manual's version line agree) and a deploy-log entry for it; the emulator ports and project in `firebase.json`, `app/src/env.ts` and `packages/shared` in step with `ci-tools.json`, no port stated in `scripts/` or `package.json`, and no other emulator project named there, in `firebase.json`, `.firebaserc` or `functions/.env*`; `functions/package.json` depending on `@google-cloud/functions-framework` and `functions/package-lock.json` in step with it; the Firebase app config committed (`app/google-services.json`, the identical `app/android/app/google-services.json`, `app/GoogleService-Info.plist`), naming the app's package, bundle id and `.firebaserc` project, since no secret writes it; Sentry set up as "Sentry" below says; the web push key committed as `VAPID_PUBLIC_KEY` in `app/src/firebase-config.ts`, a P-256 public key; the Hosting site with its predeploy, `.firebaserc`, the Android manifest's notification channel, the google-services plugin, release signing and the ignored key files, as the app contract under "ci-tools.json" says |
 | `workflows [--check]` | Render `workflows/*.yml` into `.github/workflows/`, or fail on any difference |
 
 ### Builds and their checks
@@ -336,6 +336,15 @@ must answer for itself, with a result or one of its own JSON errors. A failed
 run fails the workflow, and GitHub emails a failed scheduled run to whoever
 last changed its schedule: the owner, whose account commits the rendered
 workflows.
+
+The code that serves each request is the Functions Framework, and each app's
+`functions/package.json` names it (`check-app` holds this), so Cloud Build
+installs it from `functions/package-lock.json` like any other dependency and
+Dependabot sees it and everything under it. A function that does not name it
+gets one from Google's buildpack instead, at whatever version the buildpack's
+own lock pins, which neither the app's lock nor Dependabot covers. The apps
+take the 3.x line the buildpack itself installs for Node 22; a new major is a
+deliberate change, which each app's Dependabot ignores.
 
 ## Production every night
 

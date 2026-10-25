@@ -45,6 +45,7 @@ const CHANNEL = '<meta-data android:name="com.google.firebase.messaging.default_
 const MANIFEST = (meta) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n  <application android:allowBackup="false">\n    ${meta}\n  </application>\n</manifest>\n`;
 /** Where the fixture app's Kotlin lives, for its package. */
 const JAVA = 'app/android/app/src/main/java/com/sabeelinstitute/example';
+const FUNCTIONS_DEPENDENCIES = { '@google-cloud/functions-framework': '^3.5.1', a: '^1.0.0' };
 const SHRINK = 'android.enableMinifyInReleaseBuilds=true\nandroid.enableShrinkResourcesInReleaseBuilds=true\n';
 const INSTALLS_CLIENT = 'override fun onCreate() {\n    OkHttpClientProvider.setOkHttpClientFactory { networkClient(applicationContext) }\n  }\n';
 const fixtures = [];
@@ -109,8 +110,8 @@ function app() {
   put('app/src/firebase-config.ts', `export const firebaseConfig = { apiKey: 'example' };\nexport const VAPID_PUBLIC_KEY =\n  '${vapidKey()}';\n`);
   put('docs/PHASE_STATUS.md', '## Deploy log\n\n### 2026-10-21 — The example release — v0.2.1\n');
   put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.2.1 · October 2026*\n');
-  put('functions/package.json', { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } });
-  put('functions/package-lock.json', { packages: { '': { dependencies: { a: '^1.0.0' }, devDependencies: { b: '^2.0.0' } } } });
+  put('functions/package.json', { dependencies: FUNCTIONS_DEPENDENCIES, devDependencies: { b: '^2.0.0' } });
+  put('functions/package-lock.json', { packages: { '': { dependencies: FUNCTIONS_DEPENDENCIES, devDependencies: { b: '^2.0.0' } } } });
   put('functions/.env.demo-sabeel-example', 'MEDIA_BUCKET=local\n');
   for (const [name, text] of renderAll(full)) put(`.github/workflows/${name}`, text);
   put('firebase.json', { hosting: HOSTING, emulators: FIREBASE_EMULATORS });
@@ -313,7 +314,7 @@ describe('check-app', () => {
     put('.gitignore', '.env.local\n.env.sentry-build-plugin\n');
     put('app/app.json', { expo: { version: '0.3.0', android: { package: 'com.example.app' }, ios: { bundleIdentifier: '<key>bad</key>', buildNumber: '3000' } } });
     put('docs/USER-MANUAL.md', '# Manual\n\n*For app version 0.3.0 · October 2026*\n');
-    put('functions/package.json', { dependencies: { a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
+    put('functions/package.json', { dependencies: { ...FUNCTIONS_DEPENDENCIES, a: '^1.1.0' }, devDependencies: { b: '^2.0.0' } });
     expect(problems(root)).toEqual([
       expect.stringMatching(/does not cover app\/android\/keystore\.properties/),
       '.gitignore does not cover *.jks (release.jks, say): a key committed to a public repository stays readable in its history',
@@ -332,6 +333,16 @@ describe('check-app', () => {
       expect.stringMatching(/out of step/),
     ]);
     expect(readFileSync(join(root, 'ci-tools.json'), 'utf8')).toContain('example');
+  });
+
+  it('reports functions that leave the Functions Framework to Cloud Build', () => {
+    const { root, put } = app();
+    const dependencies = { a: '^1.0.0' };
+    put('functions/package.json', { dependencies, devDependencies: { b: '^2.0.0' } });
+    put('functions/package-lock.json', { packages: { '': { dependencies, devDependencies: { b: '^2.0.0' } } } });
+    expect(problems(root)).toEqual([
+      expect.stringMatching(/^functions\/package\.json does not depend on @google-cloud\/functions-framework: Cloud Build then installs its own copy/),
+    ]);
   });
 
   it('reports a build.gradle that applies sentry.gradle other than exactly when the build machine\'s file exists', () => {

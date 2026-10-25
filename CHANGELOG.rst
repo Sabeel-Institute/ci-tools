@@ -4,6 +4,11 @@ Changelog
 Unreleased
 ----------
 
+- ``check-app`` fails when ``functions/package.json`` does not depend on
+  ``@google-cloud/functions-framework``. Without it, Google's buildpack
+  installs a framework of its own, from its own lock, to serve every
+  request: neither ``functions/package-lock.json`` nor Dependabot covered
+  the code parsing every request body.
 - ``build-web`` tree-shakes every web export, ``--emulators`` included.
   Metro otherwise bundles every module an import reaches, used or not; with
   named Sentry imports it took Kanban's bundle from 904 KB to 622 KB
