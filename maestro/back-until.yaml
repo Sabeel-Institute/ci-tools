@@ -1,0 +1,23 @@
+# Back from the screen showing FROM until FROM is gone, at most three times. A
+# lost Back is taken again only while FROM still shows, so a Back the app did
+# take is never repeated past the screen it led to. FROM is something only the
+# screen being left shows: a screen's title often names the row that opened
+# it, so the screen behind cannot be told by a label of its own.
+#
+#   - runFlow:
+#       file: ci-tools/back-until.yaml
+#       env:
+#         FROM: "<something only this screen shows>"
+appId: ${APP_ID}
+---
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow:
+          when:
+            visible: ${FROM}
+          commands:
+            - runFlow: back.yaml
+      - extendedWaitUntil:
+          notVisible: ${FROM}
+          timeout: 20000

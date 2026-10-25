@@ -4,6 +4,27 @@ Changelog
 Unreleased
 ----------
 
+- ``native-e2e`` no longer runs Android's runner out of memory. Gradle's
+  daemon and a Kotlin compile daemon kept 5.4 GB after the debug build,
+  beside the emulator's 4.7 GB; the seed's web Metro and Chromium then took
+  the runner to 0.6 GB free and GitHub shut it down (LMS: 7 of 40 runs, 4 of
+  4 with the sampler watching). Kotlin now compiles inside Gradle's process
+  and the daemon stops once the APK exists.
+- ``native-e2e`` builds the scripts the web page loads before the seed
+  loads it. The page answers at once, but a cold Metro builds its bundle on
+  first request, past the seed's 30 s page load on a busy runner (5 iOS
+  runs).
+- The flows' shared steps live here, in ``maestro/``, and ``native-e2e``
+  copies them into the app's ``maestro/ci-tools/`` for each run (``check-app``
+  requires it ignored): ``tap-until.yaml`` and ``back-until.yaml`` take a step
+  again only while its screen is still showing, for the taps a saturated
+  simulator drops (27 iOS failures), and ``back.yaml`` and ``wait.yaml``
+  move here from the apps.
+- The Native iOS job stops Spotlight indexing first: the simulator alone
+  holds the runner's load average past 300 during the flows.
+- The emulators' downloads (their jars and the Emulator UI) are cached per
+  Firebase CLI version in CI and Native. A download that failed mid-stream
+  ended the emulators.
 - ``native-e2e`` records memory, swap, disk, load and the largest processes
   by role every 20 s, from before the build to the end, in
   ``shots/native/logs/resources.log`` and, in CI, in the job's log. LMS's

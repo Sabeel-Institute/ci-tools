@@ -100,7 +100,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
-| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver |
+| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
 
@@ -136,7 +136,14 @@ Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
 `ci.knip` is set. Browser and device suites write screenshots under `shots/`.
 Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
 to the build it installed, and `scripts/seed-emulators.mjs` seeds the
-emulators for them, run with node from the app's root. Its
+emulators for them, run with node from the app's root. A step that moves the
+app on goes through `ci-tools/tap-until.yaml` (tap `TARGET` until `EXPECT`
+shows) or `ci-tools/back-until.yaml` (Back from the screen showing `FROM` until it is gone):
+a saturated CI simulator drops taps that land before a screen takes input,
+and these take a step again only while its screen is still showing, so a real
+failure still fails. A typed field is read back before it is submitted. The
+app's `.gitignore` covers `maestro/ci-tools/`, where `native-e2e` copies these
+steps for each run. Its
 `.github/dependabot.yml` leaves out `github-actions`: this repository's
 Dependabot updates the actions in the templates, and the app takes them with
 its next pin.

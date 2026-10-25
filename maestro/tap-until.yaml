@@ -1,0 +1,24 @@
+# Tap TARGET until EXPECT shows, at most three times. A busy CI simulator can
+# drop a tap that lands before the screen takes input; this taps again only
+# while TARGET is still on screen, so a tap the app did take is not repeated
+# once the app has moved on, and a step that never gets there still fails.
+#
+#   - runFlow:
+#       file: ci-tools/tap-until.yaml
+#       env:
+#         TARGET: "<what to tap>"
+#         EXPECT: "<what the next screen shows>"
+#         SECONDS: 30   # the wait for EXPECT after each tap
+appId: ${APP_ID}
+---
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow:
+          when:
+            visible: ${TARGET}
+          commands:
+            - tapOn: ${TARGET}
+      - extendedWaitUntil:
+          visible: ${EXPECT}
+          timeout: ${SECONDS}000
