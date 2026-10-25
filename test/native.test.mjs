@@ -50,12 +50,22 @@ describe('the native flows', () => {
     expect(workflow).toContain('path: shots/native/');
   });
 
-  it('run on the iOS simulator for release tags, by hand and for pull requests that change them', () => {
+  it('run on the iOS simulator for release tags, pull requests and by hand', () => {
     expect(workflow).toMatch(/\n {2}ios:\n {4}if: .*startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name != 'push'/);
     expect(workflow).toContain('runs-on: macos-');
     expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios\n/);
-    expect(workflow).toContain('- scripts/seed-emulators.mjs\n');
-    expect(workflow).toContain('- package-lock.json\n');
+  });
+
+  it('run on every pull request to main and gate it on both platforms, failing closed', () => {
+    // A path filter would leave the required check unreported, and the pull
+    // request blocked, whenever it skipped the workflow.
+    expect(workflow).toMatch(/pull_request:\n {4}branches: \[main\]\n {2}workflow_dispatch:/);
+    expect(workflow).not.toContain('paths:');
+    const gate = workflow.slice(workflow.indexOf('\n  native:\n'));
+    expect(gate).toContain("if: always() && github.event_name == 'pull_request'");
+    expect(gate).toContain('needs: [android, ios]');
+    expect(gate).toContain('jobs.length !== 2');
+    expect(gate).toContain('job.result !== "success"');
   });
 
   it('start the web dev server and the media tools only for an app that needs them', () => {
