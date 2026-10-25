@@ -4,6 +4,11 @@ Changelog
 Unreleased
 ----------
 
+- Native runs on every pull request to main, not only those that change
+  the flows, their seed or the lockfile, and its new ``native`` job passes
+  only when the flows passed on both Android and iOS, for main's ruleset to
+  require. A pull request that changed only app code merged without the
+  flows ever running on it.
 - ``native-e2e`` no longer runs Android's runner out of memory. Gradle's
   daemon and a Kotlin compile daemon kept 5.4 GB after the debug build,
   beside the emulator's 4.7 GB; the seed's web Metro and Chromium then took
