@@ -4,6 +4,12 @@ Changelog
 Unreleased
 ----------
 
+- ``native-e2e`` records memory, swap, disk, load and the largest processes
+  by role every 20 s, from before the build to the end, in
+  ``shots/native/logs/resources.log`` and, in CI, in the job's log. LMS's
+  Android job has been ended by GitHub ("The runner has received a shutdown
+  signal") right after the debug build, which leaves no artifact; the job
+  log is all that survives. Its cleanup now also covers a failed build.
 - ``check-app`` fails when ``functions/package.json`` does not depend on
   ``@google-cloud/functions-framework``. Without it, Google's buildpack
   installs a framework of its own, from its own lock, to serve every
