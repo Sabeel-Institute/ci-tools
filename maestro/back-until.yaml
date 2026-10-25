@@ -1,12 +1,13 @@
-# Back from the screen showing FROM until EXPECT shows, at most three times. A
-# lost Back is taken again only while FROM is still on screen, so a Back the
-# app did take is never repeated past the screen it led to.
+# Back from the screen showing FROM until FROM is gone, at most three times. A
+# lost Back is taken again only while FROM still shows, so a Back the app did
+# take is never repeated past the screen it led to. FROM is something only the
+# screen being left shows: a screen's title often names the row that opened
+# it, so the screen behind cannot be told by a label of its own.
 #
 #   - runFlow:
 #       file: ci-tools/back-until.yaml
 #       env:
 #         FROM: "<something only this screen shows>"
-#         EXPECT: "<something only the screen behind it shows>"
 appId: ${APP_ID}
 ---
 - retry:
@@ -18,5 +19,5 @@ appId: ${APP_ID}
           commands:
             - runFlow: back.yaml
       - extendedWaitUntil:
-          visible: ${EXPECT}
+          notVisible: ${FROM}
           timeout: 20000

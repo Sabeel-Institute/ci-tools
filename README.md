@@ -138,7 +138,7 @@ Its Maestro flows name their app `appId: ${APP_ID}`, which `native-e2e` sets
 to the build it installed, and `scripts/seed-emulators.mjs` seeds the
 emulators for them, run with node from the app's root. A step that moves the
 app on goes through `ci-tools/tap-until.yaml` (tap `TARGET` until `EXPECT`
-shows) or `ci-tools/back-until.yaml` (Back from `FROM` until `EXPECT` shows):
+shows) or `ci-tools/back-until.yaml` (Back from the screen showing `FROM` until it is gone):
 a saturated CI simulator drops taps that land before a screen takes input,
 and these take a step again only while its screen is still showing, so a real
 failure still fails. A typed field is read back before it is submitted. The
