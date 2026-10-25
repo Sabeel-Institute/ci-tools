@@ -113,6 +113,11 @@ for port in "$METRO_PORT" "$WEB_PORT"; do
 done
 rm -rf "$OUT"
 mkdir -p "$LOGS"
+# The flows' shared steps (ci-tools/tap-until.yaml, back-until.yaml, back.yaml,
+# wait.yaml) come from here, copied in for each run: one copy across the apps,
+# which Git ignores in each.
+rm -rf maestro/ci-tools
+cp -R "$CI_TOOLS/maestro" maestro/ci-tools
 
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 cleanup() {
@@ -143,7 +148,13 @@ RESOURCES_PID=$!
 node "$CI_TOOLS/scripts/build-info.mjs"
 if [ "$PLATFORM" = android ]; then
   echo "Building the debug APK…"
-  ( cd app/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 --quiet )
+  # Gradle's daemon and a Kotlin compile daemon stay resident after a build,
+  # 5 GB between them, beside the emulator, Firebase's emulators and Metro: on
+  # a 16 GB runner that ran memory out and GitHub shut the runner down. Kotlin
+  # compiles inside Gradle's process, and the daemon stops once the APK exists.
+  ( cd app/android \
+      && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 -Pkotlin.compiler.execution.strategy=in-process --quiet \
+      && ./gradlew --stop --quiet )
   apk=$(find app/android/app/build/outputs/apk/debug -name '*.apk' | grep -E 'x86_64|app-debug' | head -1)
   adb install -r "$apk" >/dev/null 2>&1 || { adb uninstall "$APP_ID" >/dev/null 2>&1 || true; adb install "$apk" >/dev/null; }
   echo "Installed $apk"
@@ -182,6 +193,15 @@ if [ "$SEED_WEB" = true ]; then
       >"$LOGS/web.log" 2>&1 ) &
   WEB_PID=$!
   wait_for "http://127.0.0.1:${WEB_PORT}/" "the web dev server" 90
+  # The page answers at once, but Metro builds the scripts it loads on their
+  # first request, from a cleared cache: longer than the seed's page load waits
+  # on a busy runner. Build them here, with Metro's own time to do it.
+  scripts=$(curl -sf "http://127.0.0.1:${WEB_PORT}/" | grep -o '<script[^>]*src="[^"]*"' | sed 's/.*src="\([^"]*\)".*/\1/; s/&amp;/\&/g') || true
+  [ -n "$scripts" ] || { echo "native-e2e: the web dev server's page loads no script; see $LOGS/web.log" >&2; exit 1; }
+  for script in $scripts; do
+    curl -sf -o /dev/null --max-time 600 "http://127.0.0.1:${WEB_PORT}${script}" \
+      || { echo "native-e2e: Metro could not bundle the web app; see $LOGS/web.log" >&2; exit 1; }
+  done
 fi
 E2E_BASE="http://127.0.0.1:${WEB_PORT}/" node "$SEED" >"$LOGS/seed.log" 2>&1 \
   || { echo "native-e2e: the seed failed; see $LOGS/seed.log" >&2; exit 1; }

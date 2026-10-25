@@ -556,6 +556,8 @@ export function problems(root = '.') {
         .map((name) => `maestro/${name} does not take its app from native-e2e: it must name it as appId: \${APP_ID}`),
       ...(flows.length && !existsSync(join(root, SEED))
         ? [`maestro/ holds flows, but there is no ${SEED}: native-e2e seeds the emulators for them with it`] : []),
+      ...(flows.length && !ignored('maestro/ci-tools/tap-until.yaml')
+        ? ['.gitignore does not cover maestro/ci-tools/, where native-e2e copies the flows\' shared steps for each run'] : []),
     ];
   });
   attempt(() => {

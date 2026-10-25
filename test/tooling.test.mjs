@@ -582,12 +582,17 @@ describe('check-app', () => {
     ]);
   });
 
-  it('reports a flow that does not take its app from native-e2e, and flows with no seed', () => {
+  it('reports a flow that does not take its app from native-e2e, flows with no seed, and an unignored copy of the shared steps', () => {
     const { root, put } = app();
     put('maestro/board.yaml', 'appId: ${APP_ID}\n---\n- launchApp\n');
     put('maestro/common/back.yaml', 'appId: ${APP_ID}\n---\n- back\n');
-    expect(problems(root)).toEqual(['maestro/ holds flows, but there is no scripts/seed-emulators.mjs: native-e2e seeds the emulators for them with it']);
+    expect(problems(root)).toEqual([
+      'maestro/ holds flows, but there is no scripts/seed-emulators.mjs: native-e2e seeds the emulators for them with it',
+      '.gitignore does not cover maestro/ci-tools/, where native-e2e copies the flows\' shared steps for each run',
+    ]);
     put('scripts/seed-emulators.mjs', "import { emulatorProject } from '@sabeel-institute/ci-tools/lib/ports.mjs';\n");
+    expect(problems(root)).toEqual(['.gitignore does not cover maestro/ci-tools/, where native-e2e copies the flows\' shared steps for each run']);
+    put('.gitignore', `${readFileSync(join(root, '.gitignore'), 'utf8')}maestro/ci-tools/\n`);
     expect(problems(root)).toEqual([]);
     put('maestro/old.yaml', 'appId: com.sabeelinstitute.example\n---\n- launchApp\n');
     expect(problems(root)).toEqual(['maestro/old.yaml does not take its app from native-e2e: it must name it as appId: ${APP_ID}']);

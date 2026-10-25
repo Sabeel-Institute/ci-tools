@@ -77,6 +77,12 @@ jobs:
           distribution: temurin
           java-version: 21
       # ci-tools: emulator-stack
+      # The emulators' jars and the Emulator UI download on their first start, and
+      # a download that fails ends the emulators: kept per Firebase CLI version.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ steps.firebase-cli.outputs.version }}
       - name: Emulator integration tests
         run: npm run test:emulator
 
@@ -109,6 +115,12 @@ jobs:
           distribution: temurin
           java-version: 21
       # ci-tools: emulator-stack
+      # The emulators' jars and the Emulator UI download on their first start, and
+      # a download that fails ends the emulators: kept per Firebase CLI version.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ steps.firebase-cli.outputs.version }}
       # ci-tools: emulator-secrets
       # An apt mirror can stall a download indefinitely (one held this step
       # for 45 minutes). apt's own timeouts make it fail instead, and the

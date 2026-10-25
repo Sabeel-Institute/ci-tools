@@ -1,4 +1,7 @@
 - name: Install Firebase CLI
-  run: npm install --global firebase-tools@^15
+  id: firebase-cli
+  run: |
+    npm install --global firebase-tools@^15
+    echo "version=$(firebase --version)" >> "$GITHUB_OUTPUT"
 # ci-tools: ffmpeg if ci.ffmpeg
 # ci-tools: media-store if ci.mediaStore

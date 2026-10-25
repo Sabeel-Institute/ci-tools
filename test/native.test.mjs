@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { debugAppId } from '../scripts/lib/android-app.mjs';
@@ -77,6 +77,31 @@ describe('the native flows', () => {
     // Stopped on every exit, a failed build's included.
     expect(at('trap cleanup EXIT')).toBeLessThan(at('RESOURCES_PID=$!'));
     expect(runner).toMatch(/for pid in [^\n]*"\$\{RESOURCES_PID:-\}"; do/);
+  });
+
+  it("share ci-tools' flow steps, copied into each run before the build", () => {
+    const copy = runner.indexOf('cp -R "$CI_TOOLS/maestro" maestro/ci-tools');
+    expect(copy).toBeGreaterThan(0);
+    expect(copy).toBeLessThan(runner.indexOf('./gradlew assembleDebug'));
+    const steps = readdirSync(new URL('../maestro/', import.meta.url));
+    expect(steps.sort()).toEqual(['back-until.yaml', 'back.yaml', 'tap-until.yaml', 'wait.yaml']);
+    for (const name of steps) {
+      expect(readFileSync(new URL(`../maestro/${name}`, import.meta.url), 'utf8').split('\n')).toContain('appId: ${APP_ID}');
+    }
+  });
+
+  it('leave no Gradle or Kotlin daemon holding memory once the APK is built', () => {
+    // 5 GB between them ran a 16 GB runner out of memory beside the emulator.
+    expect(runner).toMatch(/\.\/gradlew assembleDebug [^\n]*-Pkotlin\.compiler\.execution\.strategy=in-process/);
+    expect(runner).toMatch(/assembleDebug [^\n]*\\\n\s+&& \.\/gradlew --stop/);
+  });
+
+  it("build the web page's scripts before the seed loads the page", () => {
+    const at = (text) => runner.indexOf(text);
+    const warm = at('curl -sf -o /dev/null --max-time 600 "http://127.0.0.1:${WEB_PORT}${script}"');
+    expect(warm).toBeGreaterThan(at('wait_for "http://127.0.0.1:${WEB_PORT}/" "the web dev server"'));
+    expect(warm).toBeLessThan(at('node "$SEED"'));
+    expect(runner).toContain('native-e2e: the web dev server\'s page loads no script');
   });
 
   it("seed the emulators with the app's one seed script, and refuse to run without it", () => {
