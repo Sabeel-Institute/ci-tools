@@ -4,6 +4,10 @@ Changelog
 Unreleased
 ----------
 
+- The Native iOS job ends macOS's temporary port range at 60999, as
+  Linux's ends. macOS hands them out up to 65535, across every app's
+  emulator block, and a connection that drew 61303 kept LMS's Functions
+  emulator from starting (1 of about 50 iOS runs).
 - Native runs on every pull request to main, not only those that change
   the flows, their seed or the lockfile, and its new ``native`` job passes
   only when the flows passed on both Android and iOS, for main's ruleset to
