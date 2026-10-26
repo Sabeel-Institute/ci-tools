@@ -4,6 +4,12 @@ Changelog
 Unreleased
 ----------
 
+- ``check-push`` and ``send-test-push`` reach FCM through firebase-admin's
+  modular entry points (``firebase-admin/app``, ``firebase-admin/messaging``),
+  as the functions do. firebase-admin 14 has no ``admin.messaging()``, and
+  since the apps moved to it the FCM check failed with "admin.messaging is
+  not a function" while the send path itself was fine. The tests' stand-in
+  firebase-admin now has 14's shape.
 - The Native iOS job ends macOS's temporary port range at 60999, as
   Linux's ends. macOS hands them out up to 65535, across every app's
   emulator block, and a connection that drew 61303 kept LMS's Functions

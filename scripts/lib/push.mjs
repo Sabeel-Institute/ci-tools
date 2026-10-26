@@ -85,24 +85,28 @@ export async function functionsModule(name) {
 }
 
 /**
- * firebase-admin from the functions workspace, initialised for the project.
- * With CHECK_ACCESS_TOKEN set it authenticates as that user token (`gcloud
- * auth print-access-token --account=<owner>`) rather than Application Default
- * Credentials, which on a shared machine may be another Google account.
+ * FCM through firebase-admin from the functions workspace, for the project,
+ * by its modular entry points as the functions reach it (firebase-admin 14
+ * has no `admin.messaging()`). With CHECK_ACCESS_TOKEN set it authenticates
+ * as that user token (`gcloud auth print-access-token --account=<owner>`)
+ * rather than Application Default Credentials, which on a shared machine may
+ * be another Google account.
  */
-export function firebaseAdmin(projectId) {
-  let admin;
+export function messaging(projectId) {
+  let app;
+  let getMessaging;
   try {
-    admin = createRequire(resolve('functions/package.json'))('firebase-admin');
+    const require = createRequire(resolve('functions/package.json'));
+    app = require('firebase-admin/app');
+    ({ getMessaging } = require('firebase-admin/messaging'));
   } catch (error) {
     throw new Error(`cannot load firebase-admin from functions/ (npm ci first): ${error.message}`);
   }
   const accessToken = process.env.CHECK_ACCESS_TOKEN;
-  admin.initializeApp({
+  return getMessaging(app.initializeApp({
     projectId,
     ...(accessToken ? { credential: { getAccessToken: async () => ({ access_token: accessToken, expires_in: 3000 }) } } : {}),
-  });
-  return admin;
+  }));
 }
 
 /**
