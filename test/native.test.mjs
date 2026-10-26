@@ -56,6 +56,12 @@ describe('the native flows', () => {
     expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios\n/);
   });
 
+  it('keep macOS from handing out an emulator port at random before the iOS flows', () => {
+    const ios = workflow.slice(workflow.indexOf('\n  ios:\n'), workflow.indexOf('\n  native:\n'));
+    expect(ios).toContain('sudo sysctl -w net.inet.ip.portrange.last=60999 net.inet.ip.portrange.hilast=60999');
+    expect(ios.indexOf('portrange.last=60999')).toBeLessThan(ios.indexOf('run: sabeel-ci native-e2e --ios'));
+  });
+
   it('run on every pull request to main and gate it on both platforms, failing closed', () => {
     // A path filter would leave the required check unreported, and the pull
     // request blocked, whenever it skipped the workflow.
