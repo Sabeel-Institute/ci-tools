@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APNS_ENVIRONMENTS, APNS_TOKEN, appleIds, appleKey, firebaseAdmin, functionsModule, project } from './lib/push.mjs';
+import { APNS_ENVIRONMENTS, APNS_TOKEN, appleIds, appleKey, functionsModule, messaging, project } from './lib/push.mjs';
 
 /**
  * Send one real push to one device, as the real project.
@@ -82,9 +82,9 @@ async function main(args) {
   }
 
   const { fcmMessage, DEAD_TOKEN_CODES } = await functionsModule('fcm');
-  const admin = firebaseAdmin(projectId);
+  const fcmApi = messaging(projectId);
   try {
-    console.log(`sent ${await admin.messaging().send({ token, ...fcmMessage(message) })}`);
+    console.log(`sent ${await fcmApi.send({ token, ...fcmMessage(message) })}`);
   } catch (error) {
     console.log(DEAD_TOKEN_CODES.has(error.code)
       ? `FCM says this token will never work (${error.code}): the app was removed, or the token replaced`

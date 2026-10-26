@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { APNS_ENVIRONMENTS, appleIds, appleKey, firebaseAdmin, functionsModule, project } from './lib/push.mjs';
+import { APNS_ENVIRONMENTS, appleIds, appleKey, functionsModule, messaging, project } from './lib/push.mjs';
 
 /**
  * Is the push send path reachable and authorised against the real project?
@@ -47,10 +47,10 @@ const fail = (first, ...rest) => {
 
 async function fcm(projectId, probe) {
   const { fcmMessage, DEAD_TOKEN_CODES } = await functionsModule('fcm');
-  const admin = firebaseAdmin(projectId);
+  const fcmApi = messaging(projectId);
   let code;
   try {
-    const answer = await admin.messaging().sendEachForMulticast({ tokens: [FCM_PROBE_TOKEN], ...fcmMessage(probe) });
+    const answer = await fcmApi.sendEachForMulticast({ tokens: [FCM_PROBE_TOKEN], ...fcmMessage(probe) });
     code = answer.responses[0].error?.code;
   } catch (error) {
     code = `threw: ${error.message}`;

@@ -82,12 +82,15 @@ export function testMessage(title: string, body: string, fields: Record<string, 
   return { title, body, route: keys.length ? fields : null };
 }
 `);
-  put('functions/node_modules/firebase-admin/package.json', JSON.stringify({ name: 'firebase-admin', main: 'index.js' }));
-  put('functions/node_modules/firebase-admin/index.js', `const { appendFileSync } = require('node:fs');
+  // firebase-admin 14's shape: the modular entry points only, with no
+  // `admin.messaging()` to fall back on.
+  put('functions/node_modules/firebase-admin/package.json', JSON.stringify({
+    name: 'firebase-admin', exports: { './app': './app.js', './messaging': './messaging.js' },
+  }));
+  put('functions/node_modules/firebase-admin/app.js', 'exports.initializeApp = (options) => ({ options });\n');
+  put('functions/node_modules/firebase-admin/messaging.js', `const { appendFileSync } = require('node:fs');
 const log = (entry) => appendFileSync(process.env.PUSH_LOG, JSON.stringify(entry) + '\\n');
-let options;
-exports.initializeApp = (value) => { options = value; };
-exports.messaging = () => ({
+exports.getMessaging = ({ options }) => ({
   async sendEachForMulticast(message) {
     const credential = options.credential ? (await options.credential.getAccessToken()).access_token : null;
     log({ fcm: 'multicast', projectId: options.projectId, credential, message });
