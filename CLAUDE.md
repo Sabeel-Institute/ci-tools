@@ -62,6 +62,11 @@ fine.
   release builds are keyed by `native-fingerprint`; a change to how either is
   built raises `RECIPES` there, and Pre-merge's gate accepts a skipped
   platform only on the fingerprint job's word.
+- **Nothing heavy runs beside a newly booted iOS simulator.** It keeps a
+  3-core CI Mac busy for about eleven minutes (load past 500, measured);
+  the iOS job boots it first (`ios-boot`) and `native-e2e` waits for the
+  load to fall under 60 before the emulators start. Every other place the
+  boot was tried failed a seed, Maestro's driver or a callable.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
 - **Actions are named in whole templates only, at one version everywhere.**
