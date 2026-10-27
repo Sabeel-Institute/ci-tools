@@ -9,13 +9,15 @@ set -euo pipefail
 #   sabeel-ci native-e2e                     # every flow, Android
 #   sabeel-ci native-e2e maestro/<flow>.yaml # one flow
 #   sabeel-ci native-e2e --ios [flow]        # the iOS simulator (macOS)
+#   sabeel-ci native-e2e --build <dir> ...   # install what native-build made in <dir>
 #
 # Android needs one booted emulator (`sabeel-ci emulator headless` here,
-# `ci-avd` in CI); iOS builds for and boots a simulator itself
-# (`ios-sim-build`). Maestro comes from `install-maestro`. Each flow is told
-# the installed app's id as APP_ID.
+# `ci-avd` in CI); iOS boots the simulator it built for (lib/ios-simulator.sh).
+# Maestro comes from `install-maestro`. Each flow is told the installed app's
+# id as APP_ID.
 #
-# It stamps and builds the debug app, starts the app's emulators
+# It stamps the build and builds the debug app (`native-build`) unless given
+# one, as the Native workflow does from its cache, starts the app's emulators
 # (`sabeel-ci emulators`), runs the app's seed, scripts/seed-emulators.mjs
 # (with a web dev server on the app's `web` port, its address in E2E_BASE, when
 # native.seedWeb says the seed drives the web app), calls every callable once
@@ -25,8 +27,20 @@ set -euo pipefail
 # what it started; a held 8081 or web port is refused, since Metro's port is
 # shared with the sibling apps.
 
+usage="usage: sabeel-ci native-e2e [--ios] [--build <dir>] [flow]"
 PLATFORM=android
-if [ "${1:-}" = --ios ]; then PLATFORM=ios; shift; fi
+BUILD=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --ios) PLATFORM=ios; shift ;;
+    --build)
+      [ -n "${2:-}" ] || { echo "native-e2e: --build needs the directory native-build wrote ($usage)" >&2; exit 2; }
+      BUILD=$(cd "$2" && pwd); shift 2 ;;
+    -*) echo "native-e2e: unknown option $1 ($usage)" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+[ "$#" -le 1 ] || { echo "native-e2e: one flow or directory at most ($usage)" >&2; exit 2; }
 FLOWS="${1:-maestro}"
 OUT="$PWD/shots/native"
 LOGS="$OUT/logs"
@@ -123,7 +137,7 @@ cp -R "$CI_TOOLS/maestro" maestro/ci-tools
 cleanup() {
   local rc=$? pid
   trap - EXIT INT TERM HUP
-  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${RESOURCES_PID:-}"; do
+  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${BOOT_PID:-}" "${RESOURCES_PID:-}"; do
     [ -z "$pid" ] || stop_tree "$pid"
   done
   # The Firebase CLI's own logs: why a function failed to load, which its
@@ -146,22 +160,26 @@ trap 'exit 129' HUP
 RESOURCES_PID=$!
 
 node "$CI_TOOLS/scripts/build-info.mjs"
+if [ -z "$BUILD" ]; then
+  BUILD="$OUT/build"
+  echo "Building the debug app…"
+  bash "$CI_TOOLS/scripts/native-build.sh" "$PLATFORM" "$BUILD" >/dev/null
+fi
 if [ "$PLATFORM" = android ]; then
-  echo "Building the debug APK…"
-  # Gradle's daemon and a Kotlin compile daemon stay resident after a build,
-  # 5 GB between them, beside the emulator, Firebase's emulators and Metro: on
-  # a 16 GB runner that ran memory out and GitHub shut the runner down. Kotlin
-  # compiles inside Gradle's process, and the daemon stops once the APK exists.
-  ( cd app/android \
-      && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 -Pkotlin.compiler.execution.strategy=in-process --quiet \
-      && ./gradlew --stop --quiet )
-  apk=$(find app/android/app/build/outputs/apk/debug -name '*.apk' | grep -E 'x86_64|app-debug' | head -1)
+  apk="$BUILD/app-debug.apk"
+  [ -f "$apk" ] || { echo "native-e2e: no debug APK in $BUILD (sabeel-ci native-build android)" >&2; exit 1; }
   adb install -r "$apk" >/dev/null 2>&1 || { adb uninstall "$APP_ID" >/dev/null 2>&1 || true; adb install "$apk" >/dev/null; }
   echo "Installed $apk"
 else
-  echo "Building the debug app for the iOS simulator…"
-  DEVICE=$(bash "$CI_TOOLS/scripts/ios-sim-build.sh" "$OUT/ios-build")
-  echo "Installed $APP_ID on simulator $DEVICE"
+  app=$(find "$BUILD" -maxdepth 1 -name '*.app' | head -1)
+  [ -n "$app" ] || { echo "native-e2e: no simulator app in $BUILD (sabeel-ci native-build ios)" >&2; exit 1; }
+  # shellcheck source-path=SCRIPTDIR source=lib/ios-simulator.sh
+  . "$CI_TOOLS/scripts/lib/ios-simulator.sh"
+  DEVICE=$(ios_simulator)
+  # The simulator boots while the emulators start and the seed runs; the app
+  # is installed once it is up, before Metro.
+  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 &
+  BOOT_PID=$!
 fi
 
 wait_for() { # wait_for <url> <label> <tries>
@@ -220,6 +238,13 @@ if [ "$PLATFORM" = android ]; then
   done
 fi
 
+if [ "$PLATFORM" = ios ]; then
+  wait "$BOOT_PID" || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
+  BOOT_PID=
+  xcrun simctl install "$DEVICE" "$app"
+  echo "Installed $APP_ID on simulator $DEVICE"
+fi
+
 # The debug build loads its JavaScript from 10.0.2.2:8081 at launch.
 ( cd app && CI=1 EXPO_PUBLIC_USE_EMULATORS=1 EXPO_PUBLIC_E2E=1 exec npx expo start --port "$METRO_PORT" --clear \
     >"$LOGS/metro.log" 2>&1 ) &
@@ -272,7 +297,10 @@ else
     rc=0
     run_flows || rc=$?
   fi
-  xcrun simctl spawn "$DEVICE" log show --last 30m --style compact 2>/dev/null | tail -n 20000 >"$LOGS/device.txt" || true
+  # Only for a failure: reading the simulator's log takes minutes (2 to 10 in CI).
+  if [ "$rc" -ne 0 ]; then
+    xcrun simctl spawn "$DEVICE" log show --last 30m --style compact 2>/dev/null | tail -n 20000 >"$LOGS/device.txt" || true
+  fi
 fi
 # What Maestro could see when the flows failed: the labels to match against.
 if [ "$rc" -ne 0 ]; then

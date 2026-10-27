@@ -112,6 +112,27 @@ function backend() {
   console.log('Standalone production install loads the backend bundle: ' + names.length + ' functions');
 }
 
+/** The platforms an export compiled to Hermes bytecode, from the files it wrote under _expo/static/js/. */
+export function hermesPlatforms(listing) {
+  return Object.entries(listing).filter(([, files]) => files.some((name) => name.endsWith('.hbc'))).map(([platform]) => platform);
+}
+
+// The production JavaScript of both phones, compiled as their release builds
+// compile it: Metro, then Hermes. It is the half of a release build that every
+// commit can change; the native half compiles in the android and ios jobs,
+// which skip native inputs that compiled before (native-fingerprint release).
+function bundles() {
+  const directory = join(temporary(), 'pr-bundles');
+  rmSync(directory, { recursive: true, force: true });
+  run('npx', ['--no-install', 'expo', 'export', '--platform', 'android', '--platform', 'ios', '--output-dir', directory], { cwd: 'app' });
+  const scripts = join(directory, '_expo/static/js');
+  const listing = Object.fromEntries(['android', 'ios'].map((platform) => [platform,
+    existsSync(join(scripts, platform)) ? readdirSync(join(scripts, platform)) : []]));
+  const compiled = hermesPlatforms(listing);
+  if (compiled.length !== 2) throw new Error('The export holds no Hermes bytecode for ' + ['android', 'ios'].filter((p) => !compiled.includes(p)).join(' and '));
+  console.log('Production JavaScript for Android and iOS compiled to Hermes bytecode');
+}
+
 export function appScheme(project, projectName) {
   const schemes = project.schemes.filter((name) => !/Tests?$/.test(name));
   if (schemes.includes(projectName)) return projectName;
@@ -155,6 +176,7 @@ if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   const task = process.argv[2];
   if (task === 'sdk') checkSdk();
   else if (task === 'backend') backend();
+  else if (task === 'bundles') bundles();
   else if (task === 'prepare') prepare();
   else if (task === 'android') android();
   else if (task === 'ios') ios();

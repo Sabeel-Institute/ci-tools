@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { debugAppId } from '../scripts/lib/android-app.mjs';
+import { RECIPES, cacheKey, fingerprintOptions } from '../scripts/native-fingerprint.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 import minimal from './fixtures/minimal.json' with { type: 'json' };
 
 const runner = readFileSync(new URL('../scripts/native-e2e.sh', import.meta.url), 'utf8');
+const builder = readFileSync(new URL('../scripts/native-build.sh', import.meta.url), 'utf8');
 const fixtures = [];
 
 afterEach(() => {
@@ -45,15 +47,78 @@ describe('the native flows', () => {
   it('run on every main push and release tag, all of them, and keep what they saw', () => {
     expect(workflow).toMatch(/push:\n {4}branches: \[main\]\n {4}tags: \['v\*'\]/);
     expect(workflow).toContain('run: sabeel-ci ci-avd');
-    expect(workflow).toMatch(/run: sabeel-ci native-e2e\n/);
+    expect(workflow).toMatch(/run: sabeel-ci native-e2e --build ~\/native-build\n/);
     expect(workflow).toMatch(/if: always\(\)\n\s+uses: actions\/upload-artifact/);
     expect(workflow).toContain('path: shots/native/');
   });
 
-  it('run on the iOS simulator for release tags, pull requests and by hand', () => {
-    expect(workflow).toMatch(/\n {2}ios:\n {4}if: .*startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name != 'push'/);
+  it('run on the iOS simulator for release tags, pull requests and by hand, and on main only for a build not kept', () => {
+    expect(workflow).toMatch(/\n {2}ios:\n {4}needs: fingerprint\n {4}if: github\.event_name != 'push' \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| needs\.fingerprint\.outputs\.ios-kept != 'true'\n/);
     expect(workflow).toContain('runs-on: macos-');
-    expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios\n/);
+    expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios --build ~\/native-build\n/);
+  });
+
+  it('build the debug app only for native inputs no kept build has, and keep it before the flows', () => {
+    const fingerprint = workflow.slice(workflow.indexOf('\n  fingerprint:\n'), workflow.indexOf('\n  android:\n'));
+    expect(fingerprint).toContain("if: github.repository_owner == 'Sabeel-Institute'");
+    expect(fingerprint).toContain('run: sabeel-ci native-fingerprint debug');
+    expect(fingerprint).toMatch(/lookup-only: true/);
+    for (const [name, platform] of [['android', 'android'], ['ios', 'ios']]) {
+      const end = name === 'android' ? '\n  # On a main push' : '\n  # The check main';
+      const job = workflow.slice(workflow.indexOf(`\n  ${name}:\n`), workflow.indexOf(end));
+      expect(job).toContain('needs: fingerprint');
+      const at = (text) => job.indexOf(text);
+      const key = `key: \${{ needs.fingerprint.outputs.${platform} }}`;
+      expect(job.split(key)).toHaveLength(3);
+      expect(at('uses: actions/cache/restore@')).toBeGreaterThan(0);
+      expect(at('uses: actions/cache/restore@')).toBeLessThan(at(`run: sabeel-ci native-build ${platform} ~/native-build`));
+      expect(at(`run: sabeel-ci native-build ${platform} ~/native-build`)).toBeLessThan(at('uses: actions/cache/save@'));
+      expect(at('uses: actions/cache/save@')).toBeLessThan(at('run: sabeel-ci native-e2e'));
+      expect(job.match(/if: steps\.kept\.outputs\.cache-hit != 'true'\n/g).length).toBeGreaterThanOrEqual(2);
+    }
+    // The SDK packages are the build's: the emulator brings its own.
+    const android = workflow.slice(workflow.indexOf('\n  android:\n'), workflow.indexOf('\n  # On a main push'));
+    expect(android).toMatch(/if: steps\.kept\.outputs\.cache-hit != 'true'\n\s+run: sabeel-ci ci-android-sdk/);
+  });
+
+  it('key each build by its platform\'s fingerprint, the recipe and, for iOS, the pods the lock pins', () => {
+    for (const kind of Object.keys(RECIPES)) {
+      const android = fingerprintOptions(kind, 'android');
+      const ios = fingerprintOptions(kind, 'ios');
+      expect(android.platforms).toEqual(['android']);
+      expect(ios.platforms).toEqual(['ios']);
+      expect(android.extraSources).toContainEqual(expect.objectContaining({ id: 'ci-tools:recipe', contents: `${kind} android ${RECIPES[kind]}` }));
+      expect(ios.extraSources).toContainEqual(expect.objectContaining({ type: 'file', filePath: 'Podfile.lock' }));
+      expect(android.extraSources.some((source) => source.filePath === 'Podfile.lock')).toBe(false);
+    }
+    expect(cacheKey('debug', 'ios', 'abc')).toBe('native-debug-ios-abc');
+    expect(() => fingerprintOptions('profile', 'android')).toThrow(/no build kind/);
+    expect(() => fingerprintOptions('debug', 'web')).toThrow(/no platform/);
+  });
+
+  it('install a build it is given, and build one only when it is not', () => {
+    const at = (text) => runner.indexOf(text);
+    expect(runner).toMatch(/--build\)\n/);
+    expect(at('if [ -z "$BUILD" ]; then')).toBeLessThan(at('native-build.sh" "$PLATFORM" "$BUILD"'));
+    expect(runner).toContain('apk="$BUILD/app-debug.apk"');
+    expect(runner).toContain("app=$(find \"$BUILD\" -maxdepth 1 -name '*.app' | head -1)");
+    expect(builder).toContain('cp "$apk" "$OUT/app-debug.apk"');
+    expect(builder).toMatch(/ditto "\$app" "\$OUT\/\$\(basename "\$app"\)"/);
+  });
+
+  it('build for and boot the same iOS simulator, booting it while the emulators start', () => {
+    expect(builder).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
+    expect(runner).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
+    const at = (text) => runner.indexOf(text);
+    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeLessThan(at('node "$CI_TOOLS/scripts/emulators.mjs"'));
+    expect(at('wait "$BOOT_PID"')).toBeGreaterThan(at('node "$SEED"'));
+    expect(at('wait "$BOOT_PID"')).toBeLessThan(at('exec npx expo start --port "$METRO_PORT"'));
+    expect(runner).toMatch(/for pid in [^\n]*"\$\{BOOT_PID:-\}"/);
+  });
+
+  it("read the iOS simulator's log only when a flow failed, since it takes minutes", () => {
+    expect(runner).toMatch(/if \[ "\$rc" -ne 0 \]; then\n\s+xcrun simctl spawn "\$DEVICE" log show/);
+    expect(runner.match(/log show/g)).toHaveLength(1);
   });
 
   it('keep macOS from handing out an emulator port at random before the iOS flows', () => {
@@ -88,8 +153,7 @@ describe('the native flows', () => {
     const at = (text) => runner.indexOf(text);
     // A runner that runs out of memory is shut down before the artifact upload.
     expect(runner).toMatch(/if \[ "\$\{GITHUB_ACTIONS:-\}" = true \]; then sample_resources \| tee -a "\$LOGS\/resources\.log"/);
-    expect(at('RESOURCES_PID=$!')).toBeLessThan(at('./gradlew assembleDebug'));
-    expect(at('RESOURCES_PID=$!')).toBeLessThan(at('ios-sim-build.sh'));
+    expect(at('RESOURCES_PID=$!')).toBeLessThan(at('native-build.sh" "$PLATFORM" "$BUILD"'));
     // Stopped on every exit, a failed build's included.
     expect(at('trap cleanup EXIT')).toBeLessThan(at('RESOURCES_PID=$!'));
     expect(runner).toMatch(/for pid in [^\n]*"\$\{RESOURCES_PID:-\}"; do/);
@@ -98,7 +162,7 @@ describe('the native flows', () => {
   it("share ci-tools' flow steps, copied into each run before the build", () => {
     const copy = runner.indexOf('cp -R "$CI_TOOLS/maestro" maestro/ci-tools');
     expect(copy).toBeGreaterThan(0);
-    expect(copy).toBeLessThan(runner.indexOf('./gradlew assembleDebug'));
+    expect(copy).toBeLessThan(runner.indexOf('native-build.sh" "$PLATFORM" "$BUILD"'));
     const steps = readdirSync(new URL('../maestro/', import.meta.url));
     expect(steps.sort()).toEqual(['back-until.yaml', 'back.yaml', 'tap-until.yaml', 'wait.yaml']);
     for (const name of steps) {
@@ -108,8 +172,8 @@ describe('the native flows', () => {
 
   it('leave no Gradle or Kotlin daemon holding memory once the APK is built', () => {
     // 5 GB between them ran a 16 GB runner out of memory beside the emulator.
-    expect(runner).toMatch(/\.\/gradlew assembleDebug [^\n]*-Pkotlin\.compiler\.execution\.strategy=in-process/);
-    expect(runner).toMatch(/assembleDebug [^\n]*\\\n\s+&& \.\/gradlew --stop/);
+    expect(builder).toMatch(/\.\/gradlew assembleDebug [^\n]*-Pkotlin\.compiler\.execution\.strategy=in-process/);
+    expect(builder).toMatch(/assembleDebug [^\n]*\\\n\s+&& \.\/gradlew --stop/);
   });
 
   it("build the web page's scripts before the seed loads the page", () => {

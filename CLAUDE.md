@@ -57,6 +57,11 @@ fine.
   repository's `main`, and installs with `--ignore-scripts`. Release jobs fetch
   before they check out the build being released, so validators always come
   from main's pin.
+- **A native build is reused only under the fingerprint of what it
+  compiled.** Native's kept debug builds and Pre-merge's record of compiled
+  release builds are keyed by `native-fingerprint`; a change to how either is
+  built raises `RECIPES` there, and Pre-merge's gate accepts a skipped
+  platform only on the fingerprint job's word.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
 - **Actions are named in whole templates only, at one version everywhere.**
@@ -64,8 +69,9 @@ fine.
   and the apps leave `github-actions` out of their own Dependabot
   (`check-app`); `ciWorkflows.test.mjs` holds both.
 - **`scripts/lib/` is shared code, not commands.** `sabeel-ci` runs only
-  `scripts/*.{mjs,sh}`; `load-build-env.sh` is sourced, `release-access.mjs`,
-  `sentry.mjs`, `emulator-flag.mjs` and `ci-sdk.mjs` are imported, and
+  `scripts/*.{mjs,sh}`; `load-build-env.sh` and `ios-simulator.sh` are
+  sourced, `release-access.mjs`, `sentry.mjs`, `emulator-flag.mjs` and
+  `ci-sdk.mjs` are imported, and
   `render-manual.py`, the one Python here, is run by `render-manual.sh` with
   `uv run --script` (its dependencies are pinned inline, PEP 723). Nothing
   before `npm ci` runs it.
