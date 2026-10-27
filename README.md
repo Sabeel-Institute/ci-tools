@@ -307,6 +307,13 @@ autolinking, the native code of every linked package and, for iOS,
   job's word; the `javascript` job compiles both phones' JavaScript through
   Hermes on every run, the half of a release build every commit can change.
 
+The iOS job starts the simulator's boot first (`ios-boot`), and
+`native-e2e` waits for the Mac's one-minute load average to fall under 60
+before it starts the emulators: a simulator that has just booted keeps a
+3-core CI Mac busy for about eleven minutes, and the seed, Maestro's driver
+and the emulated functions all missed their timeouts inside it. The build
+used to take that time.
+
 A change to how `native-build` or `ci-premerge`'s compile builds raises
 `RECIPES` in `scripts/native-fingerprint.mjs`, which retires every kept key.
 
