@@ -103,6 +103,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
 | `native-e2e [--ios] [--build <dir>] [flow]` | The Maestro flows in `maestro/` against the debug build in `<dir>` (from `native-build`), or one it builds, and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
+| `ios-boot` | Start booting the iPhone simulator `native-build` and `native-e2e` use, and return at once: the Native workflow's first iOS step, so the eleven minutes a new simulator keeps a CI Mac busy pass under the setup |
 | `native-build android\|ios <dir>` | The debug app the flows install: `<dir>/app-debug.apk` for the Android emulator, or `<dir>/<App>.app` for the iOS simulator (macOS) |
 
 ### Push

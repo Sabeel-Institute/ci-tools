@@ -111,17 +111,21 @@ describe('the native flows', () => {
     expect(builder).toMatch(/ditto "\$app" "\$OUT\/\$\(basename "\$app"\)"/);
   });
 
-  it('build for and boot the same iOS simulator, booting it last, with the seed in and the bundle built', () => {
-    expect(builder).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
-    expect(runner).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
-    const at = (text) => runner.indexOf(text);
-    // A booting simulator beside the emulators and the seed slowed both past what they wait for.
-    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeGreaterThan(at('ci-functions.mjs" warm'));
-    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeGreaterThan(at('native-e2e: Metro could not bundle the app'));
-    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeGreaterThan(at('xcrun simctl bootstatus "$DEVICE" -b'));
-    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeLessThan(at('run_flows() {'));
-    expect(runner).not.toMatch(/bootstatus[^\n]*&\n/);
-    // Maestro's driver starts on the simulator just booted, under its load.
+  it('boot the iOS simulator first, and start nothing on the Mac until it has quietened', () => {
+    const booter = readFileSync(new URL('../scripts/ios-boot.sh', import.meta.url), 'utf8');
+    for (const script of [builder, runner, booter]) expect(script).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
+    expect(booter).toMatch(/xcrun simctl boot "\$udid" [^\n]*&\n/);
+    const ios = workflow.slice(workflow.indexOf('\n  ios:\n'), workflow.indexOf('\n  # The check main'));
+    const at = (text) => ios.indexOf(text);
+    expect(at('run: sabeel-ci ios-boot')).toBeGreaterThan(at('ci-tools, at the commit package-lock.json pins'));
+    expect(at('run: sabeel-ci ios-boot')).toBeLessThan(at('run: npm ci'));
+    expect(at('run: sabeel-ci ios-boot')).toBeLessThan(at('run: sabeel-ci native-build ios'));
+    // A just-booted simulator kept the Mac too busy for the seed, Maestro's driver and the functions.
+    const on = (text) => runner.indexOf(text);
+    expect(on('xcrun simctl install "$DEVICE" "$app"')).toBeGreaterThan(on('xcrun simctl bootstatus "$DEVICE" -b'));
+    expect(on('wait_for_quiet 60 600')).toBeGreaterThan(on('xcrun simctl install "$DEVICE" "$app"'));
+    expect(on('wait_for_quiet 60 600')).toBeLessThan(on('node "$CI_TOOLS/scripts/emulators.mjs"'));
+    expect(runner).toContain("load=$(sysctl -n vm.loadavg | awk '{ print int($2) }')");
     expect(runner).toContain('export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-600000}"');
   });
 

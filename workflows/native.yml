@@ -159,6 +159,10 @@ jobs:
           node-version: 22
           cache: npm
       # ci-tools: ci-tools
+      # First, so the eleven minutes a new simulator keeps the Mac busy pass
+      # under the setup and any build (sabeel-ci ios-boot).
+      - name: Start booting the iOS simulator
+        run: sabeel-ci ios-boot
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
