@@ -234,18 +234,6 @@ if [ "$PLATFORM" = android ]; then
   done
 fi
 
-# The simulator boots only now, with the seed in: booting, and for minutes
-# after, it holds a CI Mac's load average in the hundreds. Beside it a
-# blocking function's first run took 75 s, past the Auth emulator's deadline
-# (LMS #67), and Kanban's seed clicked at a page that would not hold still
-# (Kanban #65). The flows have always run under that load.
-if [ "$PLATFORM" = ios ]; then
-  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 \
-    || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
-  xcrun simctl install "$DEVICE" "$app"
-  echo "Installed $APP_ID on simulator $DEVICE"
-fi
-
 # The debug build loads its JavaScript from 10.0.2.2:8081 at launch.
 ( cd app && CI=1 EXPO_PUBLIC_USE_EMULATORS=1 EXPO_PUBLIC_E2E=1 exec npx expo start --port "$METRO_PORT" --clear \
     >"$LOGS/metro.log" 2>&1 ) &
@@ -258,6 +246,21 @@ echo "Bundling for ${PLATFORM}…"
 curl -sf -o /dev/null --max-time 600 \
   "http://127.0.0.1:${METRO_PORT}/.expo/.virtual-metro-entry.bundle?platform=${PLATFORM}&dev=true&minify=false" \
   || { echo "native-e2e: Metro could not bundle the app; see $LOGS/metro.log" >&2; exit 1; }
+
+# The simulator boots last, with the seed in and the bundle built: booting,
+# and for minutes after, it holds a CI Mac's load average in the hundreds.
+# Beside it a blocking function's first run took 75 s, past the Auth
+# emulator's deadline (LMS #67), and Kanban's seed clicked at a page that
+# would not hold still (Kanban #65). The flows have always run under that
+# load; Maestro's driver, which starts on the simulator just booted, gets ten
+# minutes rather than its two (it was up 38 s after them, Time Tracker #56).
+if [ "$PLATFORM" = ios ]; then
+  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 \
+    || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
+  xcrun simctl install "$DEVICE" "$app"
+  echo "Installed $APP_ID on simulator $DEVICE"
+  export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-600000}"
+fi
 
 run_flows() {
   maestro ${DEVICE:+--device "$DEVICE"} test "$FLOWS" -e APP_ID="$APP_ID" \
