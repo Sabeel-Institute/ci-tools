@@ -4,6 +4,26 @@ Changelog
 Unreleased
 ----------
 
+- Native keeps each platform's debug build under the Expo fingerprint of
+  the native inputs it compiles (``native-fingerprint debug``) and builds it
+  only for a new one. A debug build loads its JavaScript from Metro, so a
+  commit that changes no native input runs the flows on the build kept from
+  main or from an earlier run of its pull request: the Xcode build took 14
+  minutes of the iOS job and Gradle 10 to 15 of Android's. On a main push the
+  iOS job runs only to keep a build for new native inputs.
+- ``native-build android|ios <dir>`` builds that debug app; ``native-e2e
+  --build <dir>`` installs it, and builds one itself when given none.
+  ``ios-sim-build`` is gone. The iOS simulator boots while the emulators
+  start and the seed runs.
+- ``native-e2e`` reads the iOS simulator's log only when a flow failed. It
+  read it after every run, 2 to 10 minutes of each iOS job.
+- Pre-merge Builds records the fingerprint of each release build that
+  compiled (``native-fingerprint release``), on main pushes as well, and
+  skips the native compile of a platform whose fingerprint compiled before.
+  The new ``javascript`` job, which replaces ``web``, compiles both phones'
+  production JavaScript through Hermes on every run (``ci-premerge
+  bundles``), and the gate accepts a skipped platform only when the
+  fingerprint job found it compiled.
 - ``check-push`` and ``send-test-push`` reach FCM through firebase-admin's
   modular entry points (``firebase-admin/app``, ``firebase-admin/messaging``),
   as the functions do. firebase-admin 14 has no ``admin.messaging()``, and

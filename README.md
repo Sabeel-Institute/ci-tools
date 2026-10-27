@@ -83,7 +83,8 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
 | `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
 | `ci-functions warm` | Every callable on the local emulators, once, so each function's worker is up; `native-e2e` runs it after the seed |
-| `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `android`, `ios` |
+| `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `bundles` (the production JavaScript of both phones, through Hermes), `android`, `ios` |
+| `native-fingerprint debug\|release` | Each platform's cache key: the Expo fingerprint of the native inputs its debug build (`debug`) or release build (`release`) compiles ("Native builds in CI" below) |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
 | `screens-report <shots>` | An HTML report of a screenshot run, diffed against main's last one |
@@ -100,9 +101,9 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
-| `native-e2e [--ios] [flow]` | The Maestro flows in `maestro/` against the debug build and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
+| `native-e2e [--ios] [--build <dir>] [flow]` | The Maestro flows in `maestro/` against the debug build in `<dir>` (from `native-build`), or one it builds, and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
-| `ios-sim-build <dir>` | Build the debug app for the iOS simulator and install it |
+| `native-build android\|ios <dir>` | The debug app the flows install: `<dir>/app-debug.apk` for the Android emulator, or `<dir>/<App>.app` for the iOS simulator (macOS) |
 
 ### Push
 
@@ -285,6 +286,28 @@ they are. Apple's key is Secret Manager's `APNS_KEY` for `check-push` and
 `~/.apns/AuthKey_<APNS_KEY_ID>.p8` for `send-test-push`, or for either the file
 `APNS_KEY_FILE` names; it is never printed. FCM authenticates as Application
 Default Credentials, or as `CHECK_ACCESS_TOKEN` when set.
+
+## Native builds in CI
+
+A debug build loads its JavaScript from Metro, so its binary depends only on
+the app's native inputs: `app.json`, `app/android/`, config plugins,
+autolinking, the native code of every linked package and, for iOS,
+`app/Podfile.lock`. `native-fingerprint` hashes them per platform with
+`@expo/fingerprint`, from the app's own install.
+
+- **Native** keeps each platform's debug build in the Actions cache under
+  its key. A commit whose key is kept, on main or earlier in the same pull
+  request, runs the flows on that build; a new key builds (`native-build`)
+  and keeps the build before the flows run. On a main push the iOS job runs
+  only for a key not kept yet.
+- **Pre-merge Builds** records the key of each release build that compiled,
+  on main and in the pull request. A platform whose key is recorded skips its
+  native compile, and the gate accepts that skip only on the fingerprint
+  job's word; the `javascript` job compiles both phones' JavaScript through
+  Hermes on every run, the half of a release build every commit can change.
+
+A change to how `native-build` or `ci-premerge`'s compile builds raises
+`RECIPES` in `scripts/native-fingerprint.mjs`, which retires every kept key.
 
 ## Builds
 

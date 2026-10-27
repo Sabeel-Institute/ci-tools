@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appScheme, backendEndpoints, firebaseFixtures } from '../scripts/ci-premerge.mjs';
+import { appScheme, backendEndpoints, firebaseFixtures, hermesPlatforms } from '../scripts/ci-premerge.mjs';
 import { compatibleVersion, sdkProblems } from '../scripts/lib/ci-sdk.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
@@ -84,12 +84,78 @@ describe('mandatory build and deployment contracts', () => {
   it('requires every platform and compatibility job and fails closed', () => {
     const workflow = premerge;
     const gate = workflow.slice(workflow.indexOf('  premerge-builds:'));
-    expect(gate).toContain('needs: [compatibility, web, android, ios]');
+    expect(gate).toContain('needs: [compatibility, fingerprint, javascript, android, ios]');
     expect(gate).toContain('if: always()');
-    expect(gate).toContain('jobs.length !== 4');
-    expect(gate).toContain('job.result !== "success"');
     expect(workflow).toContain('sabeel-ci ci-premerge backend');
     expect(workflow).toContain('npm run web:export -w @sabeel/app');
+    expect(workflow).toContain('run: sabeel-ci ci-premerge bundles');
+  });
+
+  describe('the gate, run on the jobs it needs', () => {
+    const script = premerge.slice(premerge.indexOf("node -e '") + "node -e '".length, premerge.lastIndexOf("'"));
+    const passes = (jobs) => {
+      try {
+        execFileSync(process.execPath, ['-e', script], { env: { ...process.env, JOB_RESULTS: JSON.stringify(jobs) }, stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const jobs = (changes = {}, outputs = {}) => ({
+      compatibility: { result: 'success', outputs: {} },
+      fingerprint: { result: 'success', outputs: { 'android-compiled': 'false', 'ios-compiled': 'false', ...outputs } },
+      javascript: { result: 'success', outputs: {} },
+      android: { result: 'success', outputs: {} },
+      ios: { result: 'success', outputs: {} },
+      ...Object.fromEntries(Object.entries(changes).map(([name, result]) => [name, { result, outputs: {} }])),
+    });
+
+    it('passes when every job passed', () => expect(passes(jobs())).toBe(true));
+    it('passes a platform skipped because its native inputs compiled before', () => {
+      expect(passes(jobs({ ios: 'skipped' }, { 'ios-compiled': 'true' }))).toBe(true);
+      expect(passes(jobs({ android: 'skipped', ios: 'skipped' }, { 'android-compiled': 'true', 'ios-compiled': 'true' }))).toBe(true);
+    });
+    it('fails a platform skipped for any other reason', () => {
+      expect(passes(jobs({ ios: 'skipped' }))).toBe(false);
+      expect(passes(jobs({ ios: 'skipped' }, { 'android-compiled': 'true' }))).toBe(false);
+      expect(passes(jobs({ ios: 'cancelled' }, { 'ios-compiled': 'true' }))).toBe(false);
+    });
+    it('trusts no compiled flag from a fingerprint job that did not pass', () => {
+      const failed = jobs({ ios: 'skipped' }, { 'ios-compiled': 'true' });
+      failed.fingerprint.result = 'failure';
+      expect(passes(failed)).toBe(false);
+    });
+    it('fails any other job skipped, failed or missing', () => {
+      expect(passes(jobs({ javascript: 'skipped' }, { 'android-compiled': 'true', 'ios-compiled': 'true' }))).toBe(false);
+      expect(passes(jobs({ compatibility: 'failure' }))).toBe(false);
+      const missing = jobs();
+      delete missing.javascript;
+      expect(passes(missing)).toBe(false);
+    });
+  });
+
+  it('compiles a platform only for native inputs no release build compiled, and records it when it does', () => {
+    const fingerprint = premerge.slice(premerge.indexOf('\n  fingerprint:\n'), premerge.indexOf('\n  javascript:\n'));
+    expect(fingerprint.indexOf('sabeel-ci ci-premerge prepare')).toBeLessThan(fingerprint.indexOf('sabeel-ci native-fingerprint release'));
+    expect(fingerprint.match(/lookup-only: true/g)).toHaveLength(2);
+    for (const platform of ['android', 'ios']) {
+      const job = premerge.slice(premerge.indexOf(`\n  ${platform}:\n`), premerge.indexOf(platform === 'android' ? '\n  ios:\n' : '\n  # Every job must pass'));
+      expect(job).toContain(`if: github.event.pull_request.draft != true && needs.fingerprint.outputs.${platform}-compiled != 'true'`);
+      expect(job).toContain('needs: [compatibility, fingerprint]');
+      const at = (text) => job.indexOf(text);
+      expect(at(`run: sabeel-ci ci-premerge ${platform}`)).toBeLessThan(at('uses: actions/cache/save@'));
+      expect(job).toContain(`key: \${{ needs.fingerprint.outputs.${platform} }}`);
+    }
+    // Main's pushes record what compiled there, for every pull request after them.
+    expect(premerge).toMatch(/on:\n(?: {2}#[^\n]*\n)*  push:\n {4}branches: \[main\]\n/);
+  });
+
+  it('checks that the export compiled both phones to Hermes bytecode', () => {
+    expect(hermesPlatforms({ android: ['index-1.hbc'], ios: ['index-2.hbc'] })).toEqual(['android', 'ios']);
+    expect(hermesPlatforms({ android: ['index-1.js'], ios: ['index-2.hbc'] })).toEqual(['ios']);
+    expect(hermesPlatforms({ android: [], ios: [] })).toEqual([]);
+    const helper = read('scripts/ci-premerge.mjs');
+    expect(helper).toContain("'export', '--platform', 'android', '--platform', 'ios'");
   });
   it('validates release-mode native application products without release credentials', () => {
     const helper = read('scripts/ci-premerge.mjs');
