@@ -79,6 +79,11 @@ describe('the native flows', () => {
     // The SDK packages are the build's: the emulator brings its own.
     const android = workflow.slice(workflow.indexOf('\n  android:\n'), workflow.indexOf('\n  # On a main push'));
     expect(android).toMatch(/if: steps\.kept\.outputs\.cache-hit != 'true'\n\s+run: sabeel-ci ci-android-sdk/);
+    // Gradle's cache is the build's too.
+    const java = android.match(/- name: JDK 21[^\n]*\n {8}if: steps\.kept\.outputs\.cache-hit (==|!=) 'true'\n {8}uses: actions\/setup-java@[^\n]+\n {8}with:\n(?: {10}[^\n]+\n)+/g);
+    expect(java).toHaveLength(2);
+    expect(java.find((step) => step.includes("!= 'true'"))).toContain('cache: gradle');
+    expect(java.find((step) => step.includes("== 'true'"))).not.toContain('cache:');
   });
 
   it('key each build by its platform\'s fingerprint, the recipe and, for iOS, the pods the lock pins', () => {
@@ -106,15 +111,18 @@ describe('the native flows', () => {
     expect(builder).toMatch(/ditto "\$app" "\$OUT\/\$\(basename "\$app"\)"/);
   });
 
-  it('build for and boot the same iOS simulator, booting it only once the seed is in', () => {
+  it('build for and boot the same iOS simulator, booting it last, with the seed in and the bundle built', () => {
     expect(builder).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
     expect(runner).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
     const at = (text) => runner.indexOf(text);
     // A booting simulator beside the emulators and the seed slowed both past what they wait for.
     expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeGreaterThan(at('ci-functions.mjs" warm'));
+    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeGreaterThan(at('native-e2e: Metro could not bundle the app'));
     expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeGreaterThan(at('xcrun simctl bootstatus "$DEVICE" -b'));
-    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeLessThan(at('exec npx expo start --port "$METRO_PORT"'));
+    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeLessThan(at('run_flows() {'));
     expect(runner).not.toMatch(/bootstatus[^\n]*&\n/);
+    // Maestro's driver starts on the simulator just booted, under its load.
+    expect(runner).toContain('export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-600000}"');
   });
 
   it("read the iOS simulator's log only when a flow failed, since it takes minutes", () => {
