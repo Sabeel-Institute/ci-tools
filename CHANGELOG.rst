@@ -13,10 +13,12 @@ Unreleased
   iOS job runs only to keep a build for new native inputs.
 - ``native-build android|ios <dir>`` builds that debug app; ``native-e2e
   --build <dir>`` installs it, and builds one itself when given none.
-  ``ios-sim-build`` is gone. The iOS simulator boots once the build is
-  there and before the emulators start: booted beside them it held the
-  Mac's load near 300, and a blocking function's first run took 75 s, past
-  the Auth emulator's deadline.
+  ``ios-sim-build`` is gone. The iOS simulator boots once the emulators are
+  seeded and their functions warm, before Metro and the flows: booting, and
+  for minutes after, it holds the Mac's load average in the hundreds, and
+  beside it a blocking function's first run took 75 s, past the Auth
+  emulator's deadline, and Kanban's seed clicked at a page that would not
+  hold still. With the build kept there is no build to wait through.
 - ``native-e2e`` reads the iOS simulator's log only when a flow failed. It
   read it after every run, 2 to 10 minutes of each iOS job.
 - Pre-merge Builds records the fingerprint of each release build that
