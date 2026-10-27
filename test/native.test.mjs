@@ -106,14 +106,15 @@ describe('the native flows', () => {
     expect(builder).toMatch(/ditto "\$app" "\$OUT\/\$\(basename "\$app"\)"/);
   });
 
-  it('build for and boot the same iOS simulator, booting it while the emulators start', () => {
+  it('build for and boot the same iOS simulator, and boot it before the emulators start', () => {
     expect(builder).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
     expect(runner).toContain('. "$CI_TOOLS/scripts/lib/ios-simulator.sh"');
     const at = (text) => runner.indexOf(text);
-    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeLessThan(at('node "$CI_TOOLS/scripts/emulators.mjs"'));
-    expect(at('wait "$BOOT_PID"')).toBeGreaterThan(at('node "$SEED"'));
-    expect(at('wait "$BOOT_PID"')).toBeLessThan(at('exec npx expo start --port "$METRO_PORT"'));
-    expect(runner).toMatch(/for pid in [^\n]*"\$\{BOOT_PID:-\}"/);
+    // A booting simulator beside the emulators slowed a blocking function past the Auth emulator's deadline.
+    expect(at('xcrun simctl bootstatus "$DEVICE" -b')).toBeGreaterThan(0);
+    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeGreaterThan(at('xcrun simctl bootstatus "$DEVICE" -b'));
+    expect(at('xcrun simctl install "$DEVICE" "$app"')).toBeLessThan(at('node "$CI_TOOLS/scripts/emulators.mjs"'));
+    expect(runner).not.toMatch(/bootstatus[^\n]*&\n/);
   });
 
   it("read the iOS simulator's log only when a flow failed, since it takes minutes", () => {
