@@ -137,7 +137,7 @@ cp -R "$CI_TOOLS/maestro" maestro/ci-tools
 cleanup() {
   local rc=$? pid
   trap - EXIT INT TERM HUP
-  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${BOOT_PID:-}" "${RESOURCES_PID:-}"; do
+  for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${RESOURCES_PID:-}"; do
     [ -z "$pid" ] || stop_tree "$pid"
   done
   # The Firebase CLI's own logs: why a function failed to load, which its
@@ -176,10 +176,13 @@ else
   # shellcheck source-path=SCRIPTDIR source=lib/ios-simulator.sh
   . "$CI_TOOLS/scripts/lib/ios-simulator.sh"
   DEVICE=$(ios_simulator)
-  # The simulator boots while the emulators start and the seed runs; the app
-  # is installed once it is up, before Metro.
-  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 &
-  BOOT_PID=$!
+  # Booted before the emulators start, never beside them: a booting simulator
+  # holds a CI Mac's load average near 300, and a blocking function's first
+  # run then took 75 s, past the Auth emulator's deadline (LMS #67).
+  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 \
+    || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
+  xcrun simctl install "$DEVICE" "$app"
+  echo "Installed $APP_ID on simulator $DEVICE"
 fi
 
 wait_for() { # wait_for <url> <label> <tries>
@@ -236,13 +239,6 @@ if [ "$PLATFORM" = android ]; then
     port=$(node "$CI_TOOLS/scripts/ports.mjs" "$name")
     adb reverse "tcp:$port" "tcp:$port" >/dev/null
   done
-fi
-
-if [ "$PLATFORM" = ios ]; then
-  wait "$BOOT_PID" || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
-  BOOT_PID=
-  xcrun simctl install "$DEVICE" "$app"
-  echo "Installed $APP_ID on simulator $DEVICE"
 fi
 
 # The debug build loads its JavaScript from 10.0.2.2:8081 at launch.
