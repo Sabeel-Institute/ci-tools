@@ -13,15 +13,17 @@ Unreleased
   iOS job runs only to keep a build for new native inputs.
 - ``native-build android|ios <dir>`` builds that debug app; ``native-e2e
   --build <dir>`` installs it, and builds one itself when given none.
-  ``ios-sim-build`` is gone. The iOS simulator boots last, once the
-  emulators are seeded and Metro has built the bundle: booting, and for
-  minutes after, it holds the Mac's load average in the hundreds, and
-  beside it a blocking function's first run took 75 s, past the Auth
-  emulator's deadline, and Kanban's seed clicked at a page that would not
-  hold still. With the build kept there is no build to wait through.
-  Maestro's iOS driver, which starts on the simulator just booted, gets ten
-  minutes (``MAESTRO_DRIVER_STARTUP_TIMEOUT``) rather than its two; it was
-  up 38 s after them.
+  ``ios-sim-build`` is gone.
+- The Native iOS job starts the simulator's boot first (``ios-boot``), and
+  ``native-e2e`` waits for the Mac's one-minute load average to fall under
+  60 (ten minutes at most) before it starts the emulators. A simulator that
+  has just booted keeps a 3-core CI Mac busy for about eleven minutes (load
+  past 500 four minutes in, measured with nothing else running), and with
+  the build kept nothing else took that time: in it LMS's seed missed the
+  Auth emulator's deadline, Kanban's seed clicked at a page that would not
+  hold still, Maestro's driver missed its two-minute startup and a callable
+  took 40 s. Maestro's iOS driver gets ten minutes to start
+  (``MAESTRO_DRIVER_STARTUP_TIMEOUT``).
 - Native restores Gradle's cache only when it builds the APK: restoring it
   took half a minute that a kept build has no use for.
 - ``native-e2e`` reads the iOS simulator's log only when a flow failed. It

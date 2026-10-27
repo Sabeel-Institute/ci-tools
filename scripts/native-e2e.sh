@@ -108,6 +108,26 @@ sample_resources() {
   done
 }
 
+# wait_for_quiet <load> <seconds> (macOS): until the one-minute load average
+# is under <load>, for <seconds> at most; says how long it waited, and goes on
+# regardless.
+wait_for_quiet() {
+  local waited=0 load
+  while :; do
+    load=$(sysctl -n vm.loadavg | awk '{ print int($2) }')
+    if [ "$load" -lt "$1" ]; then
+      echo "native-e2e: load $load after waiting ${waited}s for the simulator to quieten"
+      return 0
+    fi
+    if [ "$waited" -ge "$2" ]; then
+      echo "native-e2e: load still $load after ${waited}s; going on" >&2
+      return 0
+    fi
+    sleep 10
+    waited=$((waited + 10))
+  done
+}
+
 if [ "$PLATFORM" = android ]; then
   APP_ID=$(node --input-type=module -e "import { debugAppId } from '$CI_TOOLS/scripts/lib/android-app.mjs'; process.stdout.write(debugAppId())")
   devices=$(adb devices | sed -n 's/\tdevice$//p')
@@ -176,6 +196,21 @@ else
   # shellcheck source-path=SCRIPTDIR source=lib/ios-simulator.sh
   . "$CI_TOOLS/scripts/lib/ios-simulator.sh"
   DEVICE=$(ios_simulator)
+  # Booted, or its boot (`sabeel-ci ios-boot`, the Native workflow's first
+  # step) finished, then left to quieten before anything else starts. A
+  # simulator that has just booted keeps a CI Mac busy for about eleven
+  # minutes (load past 500 four minutes in, under 60 at eleven, measured with
+  # nothing else running), and in that time LMS's seed missed the Auth
+  # emulator's deadline, Kanban's seed clicked at a page that would not hold
+  # still, Maestro's driver missed its startup timeout and a callable took
+  # 40 s. Before the build was kept, the build took that time.
+  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 \
+    || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
+  xcrun simctl install "$DEVICE" "$app"
+  echo "Installed $APP_ID on simulator $DEVICE"
+  wait_for_quiet 60 600
+  # Maestro's driver starts on the simulator; ten minutes rather than its two.
+  export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-600000}"
 fi
 
 wait_for() { # wait_for <url> <label> <tries>
@@ -246,21 +281,6 @@ echo "Bundling for ${PLATFORM}…"
 curl -sf -o /dev/null --max-time 600 \
   "http://127.0.0.1:${METRO_PORT}/.expo/.virtual-metro-entry.bundle?platform=${PLATFORM}&dev=true&minify=false" \
   || { echo "native-e2e: Metro could not bundle the app; see $LOGS/metro.log" >&2; exit 1; }
-
-# The simulator boots last, with the seed in and the bundle built: booting,
-# and for minutes after, it holds a CI Mac's load average in the hundreds.
-# Beside it a blocking function's first run took 75 s, past the Auth
-# emulator's deadline (LMS #67), and Kanban's seed clicked at a page that
-# would not hold still (Kanban #65). The flows have always run under that
-# load; Maestro's driver, which starts on the simulator just booted, gets ten
-# minutes rather than its two (it was up 38 s after them, Time Tracker #56).
-if [ "$PLATFORM" = ios ]; then
-  xcrun simctl bootstatus "$DEVICE" -b >"$LOGS/simulator-boot.log" 2>&1 \
-    || { echo "native-e2e: simulator $DEVICE did not boot; see $LOGS/simulator-boot.log" >&2; exit 1; }
-  xcrun simctl install "$DEVICE" "$app"
-  echo "Installed $APP_ID on simulator $DEVICE"
-  export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-600000}"
-fi
 
 run_flows() {
   maestro ${DEVICE:+--device "$DEVICE"} test "$FLOWS" -e APP_ID="$APP_ID" \
