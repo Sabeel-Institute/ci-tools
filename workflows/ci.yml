@@ -147,9 +147,12 @@ jobs:
       # Playwright's Chromium, kept per Playwright version. The libraries it
       # needs are on GitHub's Ubuntu image already, so apt is not run: its
       # mirrors held this step for over 5 minutes in one run in 10.
+      # From its package.json: `npx playwright --version` prints npm's.
       - name: Which Playwright
         id: playwright
-        run: echo "version=$(npx --no playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(node -p "require('playwright/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright

@@ -66,6 +66,7 @@ describe('CI', () => {
     expect(install).toMatch(/^- name: Install Chromium\n {8}timeout-minutes: 10\n/);
     expect(install).toContain('npx --no playwright install chromium || { sleep 15; npx --no playwright install chromium; }');
     expect(browser.indexOf('key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}')).toBeGreaterThan(browser.indexOf('run: npm ci'));
+    expect(browser).toContain(`version=$(node -p "require('playwright/package.json').version")`);
     expect(browser.indexOf('path: ~/.cache/ms-playwright')).toBeLessThan(browser.indexOf('- name: Install Chromium\n'));
     for (const workflow of renderAll(full).values()) {
       expect(workflow).not.toMatch(/--with-deps|apt-get|\/etc\/apt/);

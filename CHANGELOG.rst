@@ -15,7 +15,8 @@ Unreleased
 - The browser jobs and Native's seed install Chromium without apt: the
   libraries it needs are on GitHub's Ubuntu image, and an apt mirror held
   the step for over five minutes in one run in ten. The browser jobs keep
-  the download per Playwright version.
+  the download per Playwright version, read from its ``package.json``
+  (``npx playwright --version`` prints npm's).
 - Native keeps each platform's debug build under the Expo fingerprint of
   the native inputs it compiles (``native-fingerprint debug``) and builds it
   only for a new one. A debug build loads its JavaScript from Metro, so a
