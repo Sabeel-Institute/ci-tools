@@ -226,3 +226,54 @@ describe('the native flows', () => {
     expect(runner).toMatch(/for log in firebase-debug\.log firestore-debug\.log; do\n\s+\[ ! -f "\$log" \] \|\| cp "\$log" "\$LOGS\/"/);
   });
 });
+
+describe("React Native's prebuilt iOS binaries", () => {
+  const rendered = renderAll(full);
+  const job = (file, name, end) => {
+    const workflow = rendered.get(file);
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    return workflow.slice(start, workflow.indexOf(end, start));
+  };
+  const version = `working-directory: app\n        run: echo "version=$(node -p "require('react-native/package.json').version")" >> "$GITHUB_OUTPUT"\n`;
+  const cache = (action) => new RegExp(`uses: actions/cache/${action}@v\\d+\\n\\s+with:\\n\\s+path: ~/Library/Caches/ReactNative\\n`
+    + '\\s+key: react-native-ios-\\$\\{\\{ steps\\.react-native\\.outputs\\.version \\}\\}\\n');
+  const builds = [
+    ['native.yml', 'ios', '\n  # The check main', 'run: sabeel-ci native-build ios'],
+    ['premerge.yml', 'ios', '\n  # Every job must pass', 'run: sabeel-ci ci-premerge ios'],
+    ['ios.yml', 'build', '\n  testflight:\n', 'run: sabeel-ci build-ios'],
+  ];
+
+  it('come from the cache, keyed by React Native version, before every iOS build', () => {
+    for (const [file, name, end, build] of builds) {
+      const steps = job(file, name, end);
+      expect(steps.indexOf(version)).toBeGreaterThan(0);
+      expect(steps.search(cache('restore'))).toBeGreaterThan(steps.indexOf(version));
+      expect(steps.search(cache('restore'))).toBeLessThan(steps.indexOf(build));
+    }
+  });
+
+  it('are kept only after a build that fetched them succeeded, and never by a signing job', () => {
+    for (const [file, name, end, build] of builds) {
+      const steps = job(file, name, end);
+      const save = steps.search(cache('save'));
+      if (file === 'ios.yml') {
+        expect(save).toBe(-1);
+        expect(steps).not.toMatch(/actions\/cache\/save@/);
+        continue;
+      }
+      expect(save).toBeGreaterThan(steps.indexOf(build));
+      const condition = steps.slice(steps.lastIndexOf('\n      - name:', save), save);
+      expect(condition).toContain("steps.rn-binaries.outputs.cache-hit != 'true'");
+      expect(condition).not.toMatch(/always\(\)|failure\(\)|cancelled\(\)/);
+    }
+  });
+
+  it('are fetched only when Native builds, never beside a kept build', () => {
+    const steps = job('native.yml', 'ios', '\n  # The check main');
+    for (const step of ["- name: React Native's version\n", "- name: React Native's iOS binaries, if kept for this version\n",
+      "- name: Keep React Native's iOS binaries for this version\n"]) {
+      const at = steps.indexOf(step);
+      expect(steps.slice(at, steps.indexOf('\n      - ', at + 1))).toContain("steps.kept.outputs.cache-hit != 'true'");
+    }
+  });
+});
