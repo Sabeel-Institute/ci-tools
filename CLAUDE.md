@@ -25,10 +25,10 @@ fine.
 - **Scripts that run before `npm ci` use Node built-ins only,** and so does
   everything they import: `ci-platform` (with `build-aab`, `build-web` and
   theirs), `ci-play` and `publish-play`, `ci-hosting-smoke`, `ci-functions
-  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`, the
-  shell scripts. The release jobs never install the app's dependencies before
-  verifying provenance; Publish Android and the device check never install
-  them at all.
+  require-ci`, `ci-premerge prepare`, `check-release`, `testflight-check`,
+  `docs-only`, the shell scripts. The release jobs never install the app's
+  dependencies before verifying provenance; Publish Android and the device
+  check never install them at all.
 - **A production build never points at the emulators.** `build-web` and
   `build-aab` refuse while `EXPO_PUBLIC_USE_EMULATORS` is set in the shell or
   in an `app/.env*` file (`scripts/lib/emulator-flag.mjs`); `build-web
@@ -67,6 +67,11 @@ fine.
   the iOS job boots it first (`ios-boot`) and `native-e2e` waits for the
   load to fall under 60 before the emulators start. Every other place the
   boot was tried failed a seed, Maestro's driver or a callable.
+- **A documentation-only pull request skips only what a document cannot
+  affect,** and only on the word of the `changes` job (`docs-only`): a
+  gate accepts a job skipped then and for no other reason. Quality always
+  runs, because lint and unit tests read Markdown and the manual. Widen
+  `DOCUMENTATION` only for files nothing builds, tests or ships.
 - **Workflow files are rendered, never edited in an app.** `sabeel-ci workflows
   --check` (inside `check-app`) fails on drift.
 - **Actions are named in whole templates only, at one version everywhere.**

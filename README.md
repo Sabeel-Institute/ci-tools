@@ -84,6 +84,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
 | `ci-functions warm` | Every callable on the local emulators, once, so each function's worker is up; `native-e2e` runs it after the seed |
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `bundles` (the production JavaScript of both phones, through Hermes), `android`, `ios` |
+| `docs-only` | Whether a pull request changes documentation alone ("Documentation-only pull requests" below) |
 | `native-fingerprint debug\|release` | Each platform's cache key: the Expo fingerprint of the native inputs its debug build (`debug`) or release build (`release`) compiles ("Native builds in CI" below) |
 | `ci-android-sdk` | The Android SDK packages Gradle needs, with retries |
 | `ci-avd` | Boot an emulator on a GitHub runner |
@@ -311,11 +312,26 @@ The iOS job starts the simulator's boot first (`ios-boot`), and
 `native-e2e` waits for the Mac's one-minute load average to fall under 60
 before it starts the emulators: a simulator that has just booted keeps a
 3-core CI Mac busy for about eleven minutes, and the seed, Maestro's driver
-and the emulated functions all missed their timeouts inside it. The build
-used to take that time.
+and the emulated functions all missed their timeouts inside it.
 
 A change to how `native-build` or `ci-premerge`'s compile builds raises
 `RECIPES` in `scripts/native-fingerprint.mjs`, which retires every kept key.
+
+## Documentation-only pull requests
+
+A pull request whose files are all Markdown, reStructuredText or under
+`docs/` skips the jobs a document cannot affect: CI's integration and
+browser jobs, both Native platforms and every Pre-merge build. Each of the
+three workflows starts with a `changes` job that runs `docs-only` on the
+pull request's merge commit, and the check main's ruleset requires
+(`build-test`, `native`, `premerge-builds`) accepts those jobs skipped only
+when that job passed and found documentation alone. CI's quality job runs
+on every pull request, as its lint reads every Markdown file and unit tests
+read the user manual. A path filter on the workflow would not do: a
+required check its workflow never ran stays pending, and the pull request
+cannot merge.
+
+Main's pushes run every job.
 
 ## Builds
 
