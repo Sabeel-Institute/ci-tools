@@ -53,7 +53,7 @@ describe('the native flows', () => {
   });
 
   it('run on the iOS simulator for release tags, pull requests and by hand, and on main only for a build not kept', () => {
-    expect(workflow).toMatch(/\n {2}ios:\n {4}needs: fingerprint\n {4}if: github\.event_name != 'push' \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| needs\.fingerprint\.outputs\.ios-kept != 'true'\n/);
+    expect(workflow).toMatch(/\n {2}ios:\n {4}needs: \[changes, fingerprint\]\n {4}if: needs\.changes\.outputs\.docs-only != 'true' && \(github\.event_name != 'push' \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| needs\.fingerprint\.outputs\.ios-kept != 'true'\)\n/);
     expect(workflow).toContain('runs-on: macos-');
     expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios --build ~\/native-build\n/);
   });
@@ -66,7 +66,7 @@ describe('the native flows', () => {
     for (const [name, platform] of [['android', 'android'], ['ios', 'ios']]) {
       const end = name === 'android' ? '\n  # On a main push' : '\n  # The check main';
       const job = workflow.slice(workflow.indexOf(`\n  ${name}:\n`), workflow.indexOf(end));
-      expect(job).toContain('needs: fingerprint');
+      expect(job).toContain('needs: [changes, fingerprint]');
       const at = (text) => job.indexOf(text);
       const key = `key: \${{ needs.fingerprint.outputs.${platform} }}`;
       expect(job.split(key)).toHaveLength(3);
@@ -147,9 +147,8 @@ describe('the native flows', () => {
     expect(workflow).not.toContain('paths:');
     const gate = workflow.slice(workflow.indexOf('\n  native:\n'));
     expect(gate).toContain("if: always() && github.event_name == 'pull_request'");
-    expect(gate).toContain('needs: [android, ios]');
-    expect(gate).toContain('jobs.length !== 2');
-    expect(gate).toContain('job.result !== "success"');
+    // How it treats each result: docsOnly.test.mjs runs it.
+    expect(gate).toContain('needs: [changes, android, ios]');
   });
 
   it('start the web dev server and the media tools only for an app that needs them', () => {

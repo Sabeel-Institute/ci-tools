@@ -84,7 +84,7 @@ describe('mandatory build and deployment contracts', () => {
   it('requires every platform and compatibility job and fails closed', () => {
     const workflow = premerge;
     const gate = workflow.slice(workflow.indexOf('  premerge-builds:'));
-    expect(gate).toContain('needs: [compatibility, fingerprint, javascript, android, ios]');
+    expect(gate).toContain('needs: [changes, compatibility, fingerprint, javascript, android, ios]');
     expect(gate).toContain('if: always()');
     expect(workflow).toContain('sabeel-ci ci-premerge backend');
     expect(workflow).toContain('npm run web:export -w @sabeel/app');
@@ -102,6 +102,7 @@ describe('mandatory build and deployment contracts', () => {
       }
     };
     const jobs = (changes = {}, outputs = {}) => ({
+      changes: { result: 'success', outputs: { 'docs-only': 'false' } },
       compatibility: { result: 'success', outputs: {} },
       fingerprint: { result: 'success', outputs: { 'android-compiled': 'false', 'ios-compiled': 'false', ...outputs } },
       javascript: { result: 'success', outputs: {} },
@@ -140,7 +141,7 @@ describe('mandatory build and deployment contracts', () => {
     expect(fingerprint.match(/lookup-only: true/g)).toHaveLength(2);
     for (const platform of ['android', 'ios']) {
       const job = premerge.slice(premerge.indexOf(`\n  ${platform}:\n`), premerge.indexOf(platform === 'android' ? '\n  ios:\n' : '\n  # Every job must pass'));
-      expect(job).toContain(`if: github.event.pull_request.draft != true && needs.fingerprint.outputs.${platform}-compiled != 'true'`);
+      expect(job).toContain(`if: needs.fingerprint.outputs.${platform}-compiled != 'true'`);
       expect(job).toContain('needs: [compatibility, fingerprint]');
       const at = (text) => job.indexOf(text);
       expect(at(`run: sabeel-ci ci-premerge ${platform}`)).toBeLessThan(at('uses: actions/cache/save@'));

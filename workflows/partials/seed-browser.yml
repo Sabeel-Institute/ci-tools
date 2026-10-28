@@ -1,7 +1,5 @@
-# An apt mirror can stall a download: apt's own timeouts make it fail
-# instead, and the install runs once more (see ci.yml's browser job).
+# The libraries Chromium needs are on GitHub's Ubuntu image already, so apt
+# is not run (see ci.yml's browser job).
 - name: Install Chromium for the seed
-  timeout-minutes: 15
-  run: |
-    echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null
-    npx playwright install --with-deps chromium || { sleep 15; npx playwright install --with-deps chromium; }
+  timeout-minutes: 10
+  run: npx --no playwright install chromium || { sleep 15; npx --no playwright install chromium; }

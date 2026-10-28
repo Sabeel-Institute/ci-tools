@@ -11,12 +11,17 @@ describe('CI', () => {
   const ci = renderAll(full).get('ci.yml');
 
   it('keeps a fail-closed aggregate over independent jobs', () => {
-    const jobs = [...ci.matchAll(/^ {2}([a-z-]+):\n(?= {4}if:)/gm)].map((match) => match[1]);
+    const jobs = [...ci.matchAll(/^ {2}([a-z-]+):\n(?= {4}(?:if|needs):)/gm)].map((match) => match[1]);
     const gate = ci.slice(ci.indexOf('  build-test:'));
-    for (const name of ['workflow-validation', 'quality', 'integration', 'browser', 'build-test']) expect(jobs).toContain(name);
-    for (const name of jobs.filter((name) => name !== 'build-test')) expect(gate).toContain(name);
+    for (const name of ['workflow-validation', 'changes', 'quality', 'integration', 'browser', 'build-test']) expect(jobs).toContain(name);
+    expect(gate).toContain(`needs: [${jobs.filter((name) => name !== 'build-test').join(', ')}]`);
     expect(gate).toContain('if: always()');
-    expect(gate).toContain('job.result !== "success"');
+    // How it treats each result: docsOnly.test.mjs runs it.
+  });
+
+  it('starts the integration and browser jobs beside quality, not after it', () => {
+    expect(job(ci, 'integration')).toContain('\n    needs: changes\n');
+    expect(job(ci, 'browser')).toContain('\n    needs: changes\n');
   });
 
   it('lints the workflows with a checksum-pinned actionlint and shellcheck', () => {
@@ -55,12 +60,16 @@ describe('CI', () => {
     expect(ci).not.toContain('secrets.');
   });
 
-  it('gives up on a stuck Chromium install in minutes, not at the job timeout', () => {
-    const install = job(ci, 'browser').slice(job(ci, 'browser').indexOf('- name: Install Chromium\n'));
-    expect(install).toMatch(/^- name: Install Chromium\n {8}timeout-minutes: 15\n/);
-    expect(install).toContain('Acquire::http::Timeout "30"');
-    expect(install).toContain('npx playwright install --with-deps chromium || { sleep 15; npx playwright install --with-deps chromium; }');
-    expect(install).not.toMatch(/\btimeout \d+ npx/);
+  it('installs Chromium from a cache kept per Playwright version, without apt', () => {
+    const browser = job(ci, 'browser');
+    const install = browser.slice(browser.indexOf('- name: Install Chromium\n'));
+    expect(install).toMatch(/^- name: Install Chromium\n {8}timeout-minutes: 10\n/);
+    expect(install).toContain('npx --no playwright install chromium || { sleep 15; npx --no playwright install chromium; }');
+    expect(browser.indexOf('key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}')).toBeGreaterThan(browser.indexOf('run: npm ci'));
+    expect(browser.indexOf('path: ~/.cache/ms-playwright')).toBeLessThan(browser.indexOf('- name: Install Chromium\n'));
+    for (const workflow of renderAll(full).values()) {
+      expect(workflow).not.toMatch(/--with-deps|apt-get|\/etc\/apt/);
+    }
   });
 });
 

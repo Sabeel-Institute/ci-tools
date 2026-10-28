@@ -4,6 +4,18 @@ Changelog
 Unreleased
 ----------
 
+- A pull request that changes documentation alone (Markdown,
+  reStructuredText, ``docs/``; the new ``docs-only`` command) skips CI's
+  integration and browser jobs, Native and the Pre-merge builds. A
+  ``changes`` job in each workflow decides, and ``build-test``, ``native``
+  and ``premerge-builds`` accept those jobs skipped only on its word. CI's
+  quality job still runs.
+- CI's integration and browser jobs start beside quality instead of after
+  it.
+- The browser jobs and Native's seed install Chromium without apt: the
+  libraries it needs are on GitHub's Ubuntu image, and an apt mirror held
+  the step for over five minutes in one run in ten. The browser jobs keep
+  the download per Playwright version.
 - Native keeps each platform's debug build under the Expo fingerprint of
   the native inputs it compiles (``native-fingerprint debug``) and builds it
   only for a new one. A debug build loads its JavaScript from Metro, so a
