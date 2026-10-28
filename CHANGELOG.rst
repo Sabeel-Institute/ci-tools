@@ -39,7 +39,7 @@ Unreleased
   (``MAESTRO_DRIVER_STARTUP_TIMEOUT``).
 - Native restores Gradle's cache only when it builds the APK: restoring it
   took half a minute that a kept build has no use for.
-- Every iOS build takes React Native's prebuilt binaries (about 160 MB)
+- Every iOS build takes React Native's prebuilt binaries (about 200 MB)
   from the Actions cache, kept per React Native version
   (``react-native-ios-<version>``), when Native or Pre-merge Builds kept
   them; pod install checks each against Maven's SHA-1. Those two jobs keep

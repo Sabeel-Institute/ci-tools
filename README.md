@@ -318,16 +318,16 @@ A change to how `native-build` or `ci-premerge`'s compile builds raises
 `RECIPES` in `scripts/native-fingerprint.mjs`, which retires every kept key.
 
 Every iOS build's pod install fetches React Native's prebuilt binaries, the
-debug and release tarballs of React Native core and its dependencies (about
-160 MB), from Maven Central, whose downloads to GitHub's runners can stall
-for hours. pod install keeps them in React Native's shared download folder,
-`~/Library/Caches/ReactNative`, and takes a file from there after checking
-it against Maven's SHA-1. Native's and Pre-merge Builds' iOS jobs keep that
-folder in the Actions cache under `react-native-ios-<React Native version>`,
-and only after a build that fetched them succeeded, so a kept set is whole.
-iOS's release build reads it and never writes it. Android builds still fetch
-React Native's library from Maven Central: Gradle keeps it only in its whole
-dependency cache.
+debug and release tarballs of React Native core, its dependencies and Hermes
+(about 200 MB), from Maven Central, whose downloads to GitHub's runners can
+stall for hours. pod install keeps them in React Native's shared download
+folder, `~/Library/Caches/ReactNative`, and takes a file from there after
+checking it against Maven's SHA-1. Native's and Pre-merge Builds' iOS jobs
+keep that folder in the Actions cache under
+`react-native-ios-<React Native version>`, and only after a build that
+fetched them succeeded, so a kept set is whole. iOS's release build reads it
+and never writes it. Android builds still fetch React Native's library from
+Maven Central: Gradle keeps it only in its whole dependency cache.
 
 ## Documentation-only pull requests
 
