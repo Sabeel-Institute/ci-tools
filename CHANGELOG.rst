@@ -39,6 +39,13 @@ Unreleased
   (``MAESTRO_DRIVER_STARTUP_TIMEOUT``).
 - Native restores Gradle's cache only when it builds the APK: restoring it
   took half a minute that a kept build has no use for.
+- Every iOS build takes React Native's prebuilt binaries (about 160 MB)
+  from the Actions cache, kept per React Native version
+  (``react-native-ios-<version>``), when Native or Pre-merge Builds kept
+  them; pod install checks each against Maven's SHA-1. Those two jobs keep
+  them after a build that fetched them succeeded; the signing workflow only
+  reads them. Maven Central served them at 2 KB/s for hours, which failed
+  Pre-merge Builds' and Native's iOS jobs at their timeouts.
 - ``native-e2e`` reads the iOS simulator's log only when a flow failed. It
   read it after every run, 2 to 10 minutes of each iOS job.
 - Pre-merge Builds records the fingerprint of each release build that
