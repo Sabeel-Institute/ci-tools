@@ -10,6 +10,14 @@ set -euo pipefail
 #   sabeel-ci native-e2e maestro/<flow>.yaml # one flow
 #   sabeel-ci native-e2e --ios [flow]        # the iOS simulator (macOS)
 #   sabeel-ci native-e2e --build <dir> ...   # install what native-build made in <dir>
+#   sabeel-ci native-e2e --seed <script> ... # seed with <script>, not the app's own
+#   sabeel-ci native-e2e --clean-status-bar ... # 9:41, full signal and battery
+#
+# --seed and --clean-status-bar are for store screenshots: a flow that
+# photographs a richer world than the tests use, under a status bar with
+# nothing of the test device in it (Android's demo mode, the simulator's
+# status-bar override; both put back when the run ends). IOS_SIMULATOR names
+# the iPhone model to run on (lib/ios-simulator.sh).
 #
 # Android needs one booted emulator (`sabeel-ci emulator headless` here,
 # `ci-avd` in CI); iOS boots the simulator it built for (lib/ios-simulator.sh).
@@ -27,15 +35,21 @@ set -euo pipefail
 # what it started; a held 8081 or web port is refused, since Metro's port is
 # shared with the sibling apps.
 
-usage="usage: sabeel-ci native-e2e [--ios] [--build <dir>] [flow]"
+usage="usage: sabeel-ci native-e2e [--ios] [--build <dir>] [--seed <script>] [--clean-status-bar] [flow]"
 PLATFORM=android
 BUILD=
+SEED=scripts/seed-emulators.mjs
+CLEAN_STATUS_BAR=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --ios) PLATFORM=ios; shift ;;
     --build)
       [ -n "${2:-}" ] || { echo "native-e2e: --build needs the directory native-build wrote ($usage)" >&2; exit 2; }
       BUILD=$(cd "$2" && pwd); shift 2 ;;
+    --seed)
+      [ -n "${2:-}" ] || { echo "native-e2e: --seed needs a script ($usage)" >&2; exit 2; }
+      SEED=$2; shift 2 ;;
+    --clean-status-bar) CLEAN_STATUS_BAR=true; shift ;;
     -*) echo "native-e2e: unknown option $1 ($usage)" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -48,7 +62,6 @@ METRO_PORT=8081
 # `ports` reads ci-tools.json through its checks, so the settings below are sound.
 WEB_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" web)
 FIRESTORE_PORT=$(node "$CI_TOOLS/scripts/ports.mjs" firestore)
-SEED=scripts/seed-emulators.mjs
 SEED_WEB=$(node -p "require('./ci-tools.json').native?.seedWeb === true")
 REVERSE=$(node -p "(require('./ci-tools.json').native?.reversePorts ?? []).join(' ')")
 [ -f "$SEED" ] || { echo "native-e2e: no $SEED, the script that seeds the emulators for the flows" >&2; exit 1; }
@@ -160,6 +173,7 @@ cleanup() {
   for pid in "${MAESTRO_PID:-}" "${METRO_PID:-}" "${WEB_PID:-}" "${FB_PID:-}" "${RESOURCES_PID:-}"; do
     [ -z "$pid" ] || stop_tree "$pid"
   done
+  [ "${STATUS_BAR_SET:-}" != true ] || status_bar restore || true
   # The Firebase CLI's own logs: why a function failed to load, which its
   # console line does not say.
   for log in firebase-debug.log firestore-debug.log; do
@@ -292,6 +306,31 @@ run_flows() {
   return "$status"
 }
 
+# status_bar clean|restore: the status bar store screenshots want, and back.
+status_bar() {
+  local command
+  if [ "$PLATFORM" = android ]; then
+    if [ "$1" = clean ]; then
+      adb shell settings put global sysui_demo_allowed 1
+      for command in enter "clock -e hhmm 0941" "battery -e level 100 -e plugged false" \
+        "network -e wifi show -e level 4" "network -e mobile show -e datatype none -e level 4" \
+        "notifications -e visible false"; do
+        adb shell "am broadcast -a com.android.systemui.demo -e command $command" >/dev/null
+      done
+    else
+      adb shell "am broadcast -a com.android.systemui.demo -e command exit" >/dev/null
+    fi
+  elif [ "$1" = clean ]; then
+    xcrun simctl status_bar "$DEVICE" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
+      --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+  else
+    xcrun simctl status_bar "$DEVICE" clear
+  fi
+}
+if [ "$CLEAN_STATUS_BAR" = true ]; then
+  STATUS_BAR_SET=true
+  status_bar clean
+fi
 rc=0
 [ "$PLATFORM" = ios ] || adb logcat -c
 run_flows || rc=$?

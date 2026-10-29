@@ -102,7 +102,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `jdk21` | The home of a JDK 21 or later, for the emulators (`SABEEL_JDK21_HOME`, `~/opt/jdk-21`, `JAVA_HOME`, `java`) |
 | `emulator headless\|window\|list\|shot <name>\|kill [serial]` | This machine's AVD (`tb_emu`, or `SABEEL_AVD`): boot it, without KVM in software; refuses to boot it twice and names who runs it |
 | `check-release <aab>` | Five cold starts of a release bundle on an emulator |
-| `native-e2e [--ios] [--build <dir>] [flow]` | The Maestro flows in `maestro/` against the debug build in `<dir>` (from `native-build`), or one it builds, and the app's emulators, on the one booted Android device or an iPhone simulator; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
+| `native-e2e [--ios] [--build <dir>] [--seed <script>] [--clean-status-bar] [flow]` | The Maestro flows in `maestro/` against the debug build in `<dir>` (from `native-build`), or one it builds, and the app's emulators, seeded by `scripts/seed-emulators.mjs` or `<script>`, on the one booted Android device or an iPhone simulator (`IOS_SIMULATOR` names the model, such as `iPhone 17 Pro Max`); `--clean-status-bar` shows 9:41 with full signal and battery, for store screenshots, and puts the status bar back after; screenshots, Maestro's report and the logs in `shots/native/`, `resources.log` among them: memory, swap, disk, load and the largest processes every 20 s, also printed to the job's log in CI, where a runner shut down for running out of memory cannot lose it. Retries once only for React Native's debug-only `pullTransaction` crash and a lost iOS driver. Copies the flows' shared steps from ci-tools' `maestro/` into `maestro/ci-tools/` (ignored by Git) for each run |
 | `install-maestro` | Maestro at a checksum-pinned version; prints its bin directory |
 | `ios-boot` | Start booting the iPhone simulator `native-build` and `native-e2e` use, and return at once: the Native workflow's first iOS step, so the eleven minutes a new simulator keeps a CI Mac busy pass under the setup |
 | `native-build android\|ios <dir>` | The debug app the flows install: `<dir>/app-debug.apk` for the Android emulator, or `<dir>/<App>.app` for the iOS simulator (macOS) |
@@ -316,6 +316,20 @@ and the emulated functions all missed their timeouts inside it.
 
 A change to how `native-build` or `ci-premerge`'s compile builds raises
 `RECIPES` in `scripts/native-fingerprint.mjs`, which retires every kept key.
+
+**Store screenshots.** Native, started by hand, runs the flows its inputs
+name on the build kept for the branch, with a seed of the app's choosing, on
+the iPhone model named and under a clean status bar:
+
+```sh
+gh workflow run native.yml --ref <branch> -f flows=maestro/store \
+  -f seed=scripts/seed-guide.mjs -f ios-simulator="iPhone 17 Pro Max" \
+  -f clean-status-bar=true
+```
+
+The screenshots are in the run's `native-ios-<sha>` and `native-<sha>`
+artifacts. Maestro runs only the flows directly in the directory it is
+given, so a `maestro/store/` of an app's own never runs with its tests.
 
 Every iOS build's pod install fetches React Native's prebuilt binaries, the
 debug and release tarballs of React Native core, its dependencies and Hermes

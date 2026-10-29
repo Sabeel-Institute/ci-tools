@@ -4,6 +4,14 @@ Changelog
 Unreleased
 ----------
 
+- ``native-e2e --seed <script>`` seeds with that script in place of
+  ``scripts/seed-emulators.mjs``, and ``--clean-status-bar`` shows 9:41,
+  full signal and battery and no notifications (Android's demo mode, the
+  simulator's status-bar override), put back when the run ends: store
+  screenshots of a richer world than the tests use. ``IOS_SIMULATOR`` names
+  the iPhone model ``ios-boot``, ``native-build`` and ``native-e2e`` use.
+  Native, started by hand, takes all four as inputs, and installs Chromium
+  for a seed given that way.
 - A pull request that changes documentation alone (Markdown,
   reStructuredText, ``docs/``; the new ``docs-only`` command) skips CI's
   integration and browser jobs, Native and the Pre-merge builds. A
