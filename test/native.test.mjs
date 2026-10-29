@@ -47,7 +47,7 @@ describe('the native flows', () => {
   it('run on every main push and release tag, all of them, and keep what they saw', () => {
     expect(workflow).toMatch(/push:\n {4}branches: \[main\]\n {4}tags: \['v\*'\]/);
     expect(workflow).toContain('run: sabeel-ci ci-avd');
-    expect(workflow).toMatch(/run: sabeel-ci native-e2e --build ~\/native-build\n/);
+    expect(workflow).toContain('run: sabeel-ci native-e2e --build ~/native-build ${SEED:+--seed "$SEED"} ${CLEAN_STATUS_BAR:+--clean-status-bar} "$FLOWS"\n');
     expect(workflow).toMatch(/if: always\(\)\n\s+uses: actions\/upload-artifact/);
     expect(workflow).toContain('path: shots/native/');
   });
@@ -55,7 +55,7 @@ describe('the native flows', () => {
   it('run on the iOS simulator for release tags, pull requests and by hand, and on main only for a build not kept', () => {
     expect(workflow).toMatch(/\n {2}ios:\n {4}needs: \[changes, fingerprint\]\n {4}if: needs\.changes\.outputs\.docs-only != 'true' && \(github\.event_name != 'push' \|\| startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| needs\.fingerprint\.outputs\.ios-kept != 'true'\)\n/);
     expect(workflow).toContain('runs-on: macos-');
-    expect(workflow).toMatch(/run: sabeel-ci native-e2e --ios --build ~\/native-build\n/);
+    expect(workflow).toContain('run: sabeel-ci native-e2e --ios --build ~/native-build ${SEED:+--seed "$SEED"} ${CLEAN_STATUS_BAR:+--clean-status-bar} "$FLOWS"\n');
   });
 
   it('build the debug app only for native inputs no kept build has, and keep it before the flows', () => {
@@ -199,6 +199,28 @@ describe('the native flows', () => {
   it("seed the emulators with the app's one seed script, and refuse to run without it", () => {
     expect(runner).toContain('SEED=scripts/seed-emulators.mjs\n');
     expect(runner).toMatch(/\[ -f "\$SEED" \] \|\| \{ echo "native-e2e: no \$SEED/);
+  });
+
+  it('take a seed and a clean status bar by hand, for store screenshots, and put the status bar back', () => {
+    expect(runner).toMatch(/--seed\)\n[^\n]*\n\s+SEED=\$2; shift 2 ;;/);
+    expect(runner).toContain('--clean-status-bar) CLEAN_STATUS_BAR=true; shift ;;');
+    const at = (text) => runner.indexOf(text);
+    expect(at('status_bar clean\nfi')).toBeLessThan(at('run_flows || rc=$?'));
+    expect(runner).toContain('[ "${STATUS_BAR_SET:-}" != true ] || status_bar restore || true');
+    expect(runner).toContain('-e command exit');
+    expect(runner).toContain('xcrun simctl status_bar "$DEVICE" clear');
+  });
+
+  it("pass the dispatch's inputs to the flows through the environment, never into the script", () => {
+    for (const name of ['flows', 'seed', 'ios-simulator', 'clean-status-bar']) {
+      expect(workflow).toMatch(new RegExp(`\\n {6}${name}:\\n {8}description: `));
+    }
+    for (const line of workflow.split('\n').filter((l) => l.includes('run:'))) {
+      expect(line).not.toContain('inputs.');
+    }
+    const ios = workflow.slice(workflow.indexOf('\n  ios:\n'), workflow.indexOf('\n  # The check main'));
+    expect(ios).toContain('    env:\n      IOS_SIMULATOR: ${{ inputs.ios-simulator }}\n');
+    expect(workflow.match(/CLEAN_STATUS_BAR: \$\{\{ inputs\.clean-status-bar && 'true' \|\| '' \}\}/g)).toHaveLength(2);
   });
 
   it('each drive the build the runner installed, on either platform', () => {
