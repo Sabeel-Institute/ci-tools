@@ -312,8 +312,10 @@ status_bar() {
   if [ "$PLATFORM" = android ]; then
     if [ "$1" = clean ]; then
       adb shell settings put global sysui_demo_allowed 1
+      # Wi-Fi alone, connected in full ("fully": no "no internet" mark); the
+      # emulator's mobile icon keeps a "3G" label under every data type.
       for command in enter "clock -e hhmm 0941" "battery -e level 100 -e plugged false" \
-        "network -e wifi show -e level 4" "network -e mobile show -e datatype none -e level 4" \
+        "network -e wifi show -e level 4 -e fully true" "network -e mobile hide" \
         "notifications -e visible false"; do
         adb shell "am broadcast -a com.android.systemui.demo -e command $command" >/dev/null
       done
