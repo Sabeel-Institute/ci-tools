@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs';
 
 const step = (say) => ({ say, do: async () => {} });
 const mod = (films, catalogue = films.map((f) => ({ id: f.id }))) => ({
-  site: 'help-site',
   catalogue,
   variants: ['phone', 'computer'],
   fileName: (id, v, kind) => `${id}-${v}.${kind === 'video' ? 'mp4' : 'vtt'}`,
