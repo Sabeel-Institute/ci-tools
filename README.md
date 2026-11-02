@@ -43,6 +43,7 @@ root, the directory holding `ci-tools.json`.
 | `check-text-sources` | No tracked source file holds a control byte that makes tools treat it as binary |
 | `icons` | Write `app/src/icons/glyphmap.json` and `icons.ttf` from `names.json`: the Material Icons glyphs the app names, cut from the `@expo/vector-icons` it installs (see "Icons" below) |
 | `preflight-metro` | Refuse to start Metro while another project's Metro holds port 8081 |
+| `films <lines\|tts\|asr\|record\|publish>` | The app's narrated help films: the narration rendered and checked, each film recorded on a phone and a computer, and the whole set published to the app's help site (see "Help films" below) |
 
 ### Dependency updates
 
@@ -132,6 +133,7 @@ Every key is checked; an unknown or misspelt one fails every command.
 | `emulators.base`, `.extras`, `.functionsWrapper` | The app's port block, its own extra ports and the command its Functions runs go through ("Emulator ports" below) |
 | `native.seedWeb` | The seed (`scripts/seed-emulators.mjs`) drives the web app: a web dev server runs on the app's `web` port for it, its address in `E2E_BASE` |
 | `native.reversePorts` | Ports the app reaches on this machine's `127.0.0.1`, which the Android emulator is given (`adb reverse`) |
+| `films.module`, `films.site` | The app's films module (relative to its root) and the Firebase Hosting site its help films are served from ("Help films" below); both or neither |
 | `release.appSigningCertificate` | The SHA-256 of the certificate Play signs installed APKs with (Play Console, App integrity), as Play Console prints it |
 
 Every app provides the npm scripts the CI workflow runs: `lint`, `typecheck`,
@@ -402,6 +404,50 @@ the list is unsorted or repeats a name, when either written file differs from
 what the list makes today, or when the font does not draw a glyph the map
 names (read from the font's own `cmap` and `loca`). Its lint refuses the
 stock sets.
+
+## Help films
+
+An app with narrated help films (More → Help) names its films module and
+its help site in `ci-tools.json`'s `films`. The module's default export holds
+what differs between the apps; `lib/films/record.mjs` holds what does not:
+
+| Export | What it is |
+|---|---|
+| `catalogue`, `variants`, `fileName(id, variant, kind)` | The films the Help screen lists (from the app's shared package), the cuts (`phone`, `computer`) and each file's name |
+| `films` | One script per catalogued film: `{ id, as, start, permission?, before?, steps: [{ say, do, cut? }] }`. `as` signs in off camera; `start` is a path, or a function of the world; each step's `do(t)` acts while its line is said |
+| `stack()` | Brings up the emulators and the web build to film against; returns `{ web, stop }` |
+| `world()` | A fresh guide world for one film: made-up people and work, never anyone's real data |
+| `signIn(context, as, web)` | Signs in off camera, in the film's browser context |
+| `ready(page, film)` | A locator for the screen the film starts on |
+| `helpers?`, `hide?`, `buildStamp?` | The app's own locators for `do(t)`; selectors hidden in the film (a dev-only sign-in row); a pattern for the build stamp, hidden |
+
+`checkFilms` refuses a module whose films and catalogue disagree, or whose
+step has nothing to say or do. The commands run in order:
+
+1. `sabeel-ci films tts --wav <dir>`: one WAV per line, with Qwen3-TTS
+   (CustomVoice, the built-in `aiden` voice, a warm conversational
+   instruction) on this machine's CPU, about six seconds per second of
+   speech. A line whose WAV was rendered from the same words is skipped, so
+   a run resumes. The model peaks near 12 GB: nothing else heavy beside it.
+2. `sabeel-ci films asr --wav <dir>`: faster-whisper transcribes each WAV
+   and flags a line whose words drift from the script (above 0.15 word error
+   rate); delete its WAV and render again.
+3. `sabeel-ci films record --wav <dir> --out <dir>`: each film in a fresh
+   world, on a 390×844 phone filmed at twice its pixels and a 1440×900
+   computer. A touch is drawn as a ripple and the computer's pointer as a
+   dot; the browser's confirmations are drawn into the page; each step lasts
+   as long as its line. The narration is laid over the film, loudness
+   normalised, as small H.264 + AAC MP4 with WebVTT captions. A step that
+   fails leaves `.failed-<film>-<cut>.png` beside the films. The recorder
+   refuses a WAV rendered from other words than its step's.
+4. `sabeel-ci films publish --from <dir>`: the whole set, both cuts and
+   captions, in one Hosting deploy to `films.site` (a deploy replaces the
+   site, so a missing file stops it before anything is sent), served to any
+   origin for the web's caption track, then each file fetched back and its
+   size compared.
+
+The Python tools (`lib/films/tts.py`, `asr_check.py`) run with `uv run
+--script`, their dependencies pinned inline (PEP 723).
 
 ## Cloud Functions in production
 
