@@ -82,9 +82,9 @@ fine.
   `scripts/*.{mjs,sh}`; `load-build-env.sh` and `ios-simulator.sh` are
   sourced, `release-access.mjs`, `sentry.mjs`, `emulator-flag.mjs` and
   `ci-sdk.mjs` are imported, and
-  `render-manual.py`, the one Python here, is run by `render-manual.sh` with
-  `uv run --script` (its dependencies are pinned inline, PEP 723). Nothing
-  before `npm ci` runs it.
+  `render-manual.py` is run by `render-manual.sh`, and `lib/films/tts.py` and
+  `asr_check.py` by `films`, all with `uv run --script` (their dependencies
+  are pinned inline, PEP 723). Nothing before `npm ci` runs them.
 
 ## Tests
 
