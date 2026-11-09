@@ -28,6 +28,6 @@
     "subset-font": "^2.9.0"
   },
   "devDependencies": {
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
