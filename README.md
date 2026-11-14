@@ -476,8 +476,9 @@ deliberate change, which each app's Dependabot ignores.
 
 The institute's Google organization restricts who may be granted access to
 its projects (domain-restricted sharing, `iam.allowedPolicyMemberDomains`), and
-that includes `allUsers`, the public invoker every callable and HTTP function
-needs. A deploy grants it only as it creates a function, so the organization
+that includes `allUsers`, the public invoker every callable, blocking function
+(`beforeSignIn` and the like) and public HTTP function needs. Every Sabeel
+project sits in that organization. A deploy grants it only as it creates a function, so the organization
 refuses it there, the deploy reports `Unable to set the invoker` (blaming
 `roles/functions.admin`; `firebase-debug.log` has the real reason, "do not
 belong to a permitted customer"), and every call bounces at Cloud Run with an

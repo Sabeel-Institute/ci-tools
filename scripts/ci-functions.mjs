@@ -34,15 +34,27 @@ const KINDS = [
   ['taskQueueTrigger', 'task'],
 ];
 
+/**
+ * Whether anyone may call the function, so that a deploy grants it `allUsers`.
+ * Callables and blocking functions always (Identity Platform calls the
+ * latter); an HTTP function unless it names its invokers without `public`.
+ * Events, schedules and task queues are called by Google's own accounts.
+ */
+function isPublic(kind, endpoint) {
+  if (kind === 'callable' || kind === 'blocking') return true;
+  if (kind !== 'https') return false;
+  const invoker = endpoint.httpsTrigger?.invoker;
+  return !invoker?.length || invoker.includes('public');
+}
+
 /** The functions a built bundle registers, from its exports' `__endpoint`s. */
 export function sourceEndpoints(exported) {
   const endpoints = Object.entries(exported)
     .filter(([, value]) => value?.__endpoint)
-    .map(([name, { __endpoint: endpoint }]) => ({
-      name,
-      region: endpoint.region?.[0] ?? 'us-central1',
-      kind: KINDS.find(([key]) => endpoint[key])?.[1] ?? 'other',
-    }));
+    .map(([name, { __endpoint: endpoint }]) => {
+      const kind = KINDS.find(([key]) => endpoint[key])?.[1] ?? 'other';
+      return { name, region: endpoint.region?.[0] ?? 'us-central1', kind, public: isPublic(kind, endpoint) };
+    });
   if (!endpoints.length) throw new Error('The backend bundle registers no functions');
   return endpoints;
 }
@@ -54,14 +66,15 @@ export function deletions(deployedNames, endpoints) {
 }
 
 /**
- * New functions anyone may call: callables and HTTP functions the project does
- * not run yet. A deploy gives such a function its public invoker (`allUsers`)
- * only as it creates it, and the institute's organization refuses that binding
- * (domain-restricted sharing), so each answers Cloud Run's HTML 403 until it is
- * bound by hand. A later deploy never tries again.
+ * New functions anyone may call (`isPublic`) that the project does not run
+ * yet. A deploy gives such a function its public invoker (`allUsers`) only as
+ * it creates it, and the institute's organization, which holds every Sabeel
+ * project, refuses that binding (domain-restricted sharing), so each answers
+ * Cloud Run's HTML 403 until it is bound by hand. A later deploy never tries
+ * again.
  */
 export function newPublicFunctions(deployedNames, endpoints) {
-  return endpoints.filter((endpoint) => ['callable', 'https'].includes(endpoint.kind) && !deployedNames.includes(endpoint.name));
+  return endpoints.filter((endpoint) => endpoint.public && !deployedNames.includes(endpoint.name));
 }
 
 /**
