@@ -81,7 +81,7 @@ the pre-merge SDK check names it with the `npm install` that takes it.
 | `ci-hosting-smoke [--preflight]` | Read-only checks of a Hosting release, before and after publishing |
 | `ci-hosting-smoke --live` | The live web app, between deploys: it must serve, byte for byte, the Web workflow's build of the commit its scripts are stamped with (the Nightly workflow) |
 | `nightly-issue <check>=<outcome>…` | The Nightly workflow's one `nightly` issue: opened or commented on when a check did not pass, closed on a night that passes |
-| `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy |
+| `ci-functions require-ci\|plan\|verify` | Guards around a Cloud Functions deploy; `plan` names a new public function, whose invoker is bound by hand |
 | `ci-functions health` | Every callable in production answers for itself; the Health workflow runs it every half hour |
 | `ci-functions warm` | Every callable on the local emulators, once, so each function's worker is up; `native-e2e` runs it after the seed |
 | `ci-premerge <task>` | Pull-request builds with no secrets: `sdk`, `backend`, `prepare`, `bundles` (the production JavaScript of both phones, through Hermes), `android`, `ios` |
@@ -471,6 +471,40 @@ gets one from Google's buildpack instead, at whatever version the buildpack's
 own lock pins, which neither the app's lock nor Dependabot covers. The apps
 take the 3.x line the buildpack itself installs for Node 22; a new major is a
 deliberate change, which each app's Dependabot ignores.
+
+### A new function answers 403
+
+The institute's Google organization restricts who may be granted access to
+its projects (domain-restricted sharing, `iam.allowedPolicyMemberDomains`), and
+that includes `allUsers`, the public invoker every callable, blocking function
+(`beforeSignIn` and the like) and public HTTP function needs. Every Sabeel
+project sits in that organization. A deploy grants it only as it creates a function, so the organization
+refuses it there, the deploy reports `Unable to set the invoker` (blaming
+`roles/functions.admin`; `firebase-debug.log` has the real reason, "do not
+belong to a permitted customer"), and every call bounces at Cloud Run with an
+HTML 403 before the code runs. Deploying as Owner, or recreating the function,
+meets the same refusal, and a later deploy never retries it.
+
+`ci-functions plan` names each such function before the deploy, prints the
+commands below for it, and puts them in the run's summary; `verify` then fails
+on its 403 until it is bound. Someone who holds `roles/orgpolicy.policyAdmin`
+runs them right after the deploy, before any client that calls the function
+ships. The binding is refused for about a minute after the policy is lifted;
+retry it. The first command must show only an etag (the project inherits the
+policy and has none of its own), or deleting the override at the end would not
+restore what was there:
+
+```sh
+gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=<project>
+printf 'constraint: constraints/iam.allowedPolicyMemberDomains\nlistPolicy:\n  allValues: ALLOW\n' > allow.yaml
+gcloud resource-manager org-policies set-policy allow.yaml --project=<project>
+gcloud run services add-iam-policy-binding <function, lowercased> --member=allUsers \
+  --role=roles/run.invoker --region=<region> --project=<project>
+gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=<project>
+```
+
+`gcloud org-policies` would need the Org Policy API enabled on the project;
+`gcloud resource-manager org-policies` does not.
 
 ## Production every night
 

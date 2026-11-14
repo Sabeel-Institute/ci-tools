@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callableAnswered, deletions, deployErrors, probeHealthy, sourceEndpoints } from '../scripts/ci-functions.mjs';
+import { callableAnswered, deletions, deployErrors, invokerSteps, newPublicFunctions, probeHealthy, sourceEndpoints } from '../scripts/ci-functions.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -13,13 +13,21 @@ describe('functions deploy guards', () => {
       probe: { __endpoint: { httpsTrigger: {} } },
       nightly: { __endpoint: { scheduleTrigger: { schedule: 'every day 05:00' } } },
       onWrite: { __endpoint: { eventTrigger: {}, region: ['europe-west1'] } },
+      gate: { __endpoint: { blockingTrigger: { eventType: 'providers/cloud.auth/eventTypes/user.beforeSignIn' } } },
+      open: { __endpoint: { httpsTrigger: { invoker: ['public'] } } },
+      closed: { __endpoint: { httpsTrigger: { invoker: ['private'] } } },
+      robot: { __endpoint: { httpsTrigger: { invoker: ['robot@demo-x.iam.gserviceaccount.com'] } } },
       helper: () => {},
     });
     expect(endpoints).toEqual([
-      { name: 'join', region: 'us-central1', kind: 'callable' },
-      { name: 'probe', region: 'us-central1', kind: 'https' },
-      { name: 'nightly', region: 'us-central1', kind: 'schedule' },
-      { name: 'onWrite', region: 'europe-west1', kind: 'event' },
+      { name: 'join', region: 'us-central1', kind: 'callable', public: true },
+      { name: 'probe', region: 'us-central1', kind: 'https', public: true },
+      { name: 'nightly', region: 'us-central1', kind: 'schedule', public: false },
+      { name: 'onWrite', region: 'europe-west1', kind: 'event', public: false },
+      { name: 'gate', region: 'us-central1', kind: 'blocking', public: true },
+      { name: 'open', region: 'us-central1', kind: 'https', public: true },
+      { name: 'closed', region: 'us-central1', kind: 'https', public: false },
+      { name: 'robot', region: 'us-central1', kind: 'https', public: false },
     ]);
     expect(() => sourceEndpoints({ helper: () => {} })).toThrow(/registers no functions/);
   });
@@ -28,6 +36,34 @@ describe('functions deploy guards', () => {
     const source = [{ name: 'a' }, { name: 'b' }];
     expect(deletions(['a', 'b'], source)).toEqual([]);
     expect(deletions(['c', 'a', 'b', 'old'], source)).toEqual(['c', 'old']);
+  });
+
+  it('names each new function anyone may call, and only those', () => {
+    const source = sourceEndpoints({
+      live: { __endpoint: { callableTrigger: {} } },
+      cloneBoard: { __endpoint: { callableTrigger: {} } },
+      probe: { __endpoint: { httpsTrigger: {}, region: ['europe-west1'] } },
+      beforeSignIn: { __endpoint: { blockingTrigger: {} } },
+      internal: { __endpoint: { httpsTrigger: { invoker: ['private'] } } },
+      nightly: { __endpoint: { scheduleTrigger: {} } },
+      onWrite: { __endpoint: { eventTrigger: {} } },
+    });
+    expect(newPublicFunctions(['live'], source).map((f) => f.name)).toEqual(['cloneBoard', 'probe', 'beforeSignIn']);
+    expect(newPublicFunctions(['live', 'cloneBoard', 'probe', 'beforeSignIn'], source)).toEqual([]);
+  });
+
+  it('binds each new function in its region under its Cloud Run name, inside a lifted and restored policy', () => {
+    const steps = invokerSteps('demo-x', [
+      { name: 'cloneBoard', region: 'us-central1' },
+      { name: 'probe', region: 'europe-west1' },
+    ]);
+    expect(steps[0]).toBe('gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=demo-x');
+    expect(steps[2]).toBe('gcloud resource-manager org-policies set-policy allow.yaml --project=demo-x');
+    expect(steps.slice(3, 5)).toEqual([
+      'gcloud run services add-iam-policy-binding cloneboard --member=allUsers --role=roles/run.invoker --region=us-central1 --project=demo-x',
+      'gcloud run services add-iam-policy-binding probe --member=allUsers --role=roles/run.invoker --region=europe-west1 --project=demo-x',
+    ]);
+    expect(steps.at(-1)).toBe('gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=demo-x');
   });
 
   it('counts a callable as answering only when its own code replied', () => {
