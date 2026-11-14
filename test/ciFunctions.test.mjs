@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callableAnswered, deletions, deployErrors, probeHealthy, sourceEndpoints } from '../scripts/ci-functions.mjs';
+import { callableAnswered, deletions, deployErrors, invokerSteps, newPublicFunctions, probeHealthy, sourceEndpoints } from '../scripts/ci-functions.mjs';
 import { renderAll } from '../scripts/workflows.mjs';
 import full from './fixtures/full.json' with { type: 'json' };
 
@@ -28,6 +28,32 @@ describe('functions deploy guards', () => {
     const source = [{ name: 'a' }, { name: 'b' }];
     expect(deletions(['a', 'b'], source)).toEqual([]);
     expect(deletions(['c', 'a', 'b', 'old'], source)).toEqual(['c', 'old']);
+  });
+
+  it('names each new function anyone may call, and only those', () => {
+    const source = [
+      { name: 'live', region: 'us-central1', kind: 'callable' },
+      { name: 'cloneBoard', region: 'us-central1', kind: 'callable' },
+      { name: 'probe', region: 'europe-west1', kind: 'https' },
+      { name: 'nightly', region: 'us-central1', kind: 'schedule' },
+      { name: 'onWrite', region: 'us-central1', kind: 'event' },
+    ];
+    expect(newPublicFunctions(['live'], source).map((f) => f.name)).toEqual(['cloneBoard', 'probe']);
+    expect(newPublicFunctions(['live', 'cloneBoard', 'probe'], source)).toEqual([]);
+  });
+
+  it('binds each new function in its region under its Cloud Run name, inside a lifted and restored policy', () => {
+    const steps = invokerSteps('demo-x', [
+      { name: 'cloneBoard', region: 'us-central1' },
+      { name: 'probe', region: 'europe-west1' },
+    ]);
+    expect(steps[0]).toBe('gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=demo-x');
+    expect(steps[2]).toBe('gcloud resource-manager org-policies set-policy allow.yaml --project=demo-x');
+    expect(steps.slice(3, 5)).toEqual([
+      'gcloud run services add-iam-policy-binding cloneboard --member=allUsers --role=roles/run.invoker --region=us-central1 --project=demo-x',
+      'gcloud run services add-iam-policy-binding probe --member=allUsers --role=roles/run.invoker --region=europe-west1 --project=demo-x',
+    ]);
+    expect(steps.at(-1)).toBe('gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=demo-x');
   });
 
   it('counts a callable as answering only when its own code replied', () => {

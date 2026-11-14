@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../lib/config.mjs';
@@ -51,6 +51,35 @@ export function sourceEndpoints(exported) {
 export function deletions(deployedNames, endpoints) {
   const inSource = new Set(endpoints.map((endpoint) => endpoint.name));
   return deployedNames.filter((name) => !inSource.has(name)).sort();
+}
+
+/**
+ * New functions anyone may call: callables and HTTP functions the project does
+ * not run yet. A deploy gives such a function its public invoker (`allUsers`)
+ * only as it creates it, and the institute's organization refuses that binding
+ * (domain-restricted sharing), so each answers Cloud Run's HTML 403 until it is
+ * bound by hand. A later deploy never tries again.
+ */
+export function newPublicFunctions(deployedNames, endpoints) {
+  return endpoints.filter((endpoint) => ['callable', 'https'].includes(endpoint.kind) && !deployedNames.includes(endpoint.name));
+}
+
+/**
+ * The commands that bind those invokers, for someone who may change the
+ * project's organization policy (roles/orgpolicy.policyAdmin): lift the policy
+ * on this project alone, bind, and delete the override. Deleting restores the
+ * inherited policy exactly only when the project had no policy of its own,
+ * which the first command shows (an etag and nothing else).
+ */
+export function invokerSteps(id, functions) {
+  return [
+    `gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=${id}`,
+    "printf 'constraint: constraints/iam.allowedPolicyMemberDomains\\nlistPolicy:\\n  allValues: ALLOW\\n' > allow.yaml",
+    `gcloud resource-manager org-policies set-policy allow.yaml --project=${id}`,
+    ...functions.map(({ name, region }) => `gcloud run services add-iam-policy-binding ${name.toLowerCase()} `
+      + `--member=allUsers --role=roles/run.invoker --region=${region} --project=${id}`),
+    `gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=${id}`,
+  ];
 }
 
 /**
@@ -126,6 +155,21 @@ function plan() {
   const added = endpoints.filter((endpoint) => !deployed.includes(endpoint.name)).map((endpoint) => endpoint.name);
   console.log(`${endpoints.length} functions in the bundle, ${deployed.length} live in ${id}; none would be deleted`);
   if (added.length) console.log(`New functions, created by this deploy: ${added.join(', ')}`);
+  const unbound = newPublicFunctions(deployed, endpoints);
+  if (unbound.length) {
+    const names = unbound.map((endpoint) => endpoint.name).join(', ');
+    const steps = invokerSteps(id, unbound);
+    const said = `${names} will answer 403 after this deploy: the organization refuses the public invoker a deploy `
+      + 'gives a new function, so verify will fail until it is bound by hand, right after the deploy and before any '
+      + 'client that calls it ships. An organization policy admin runs (retrying the binding for about a minute):';
+    console.log(`\n${said}\n${steps.map((step) => `  ${step}`).join('\n')}\n`);
+    if (process.env.GITHUB_ACTIONS) {
+      console.log(`::warning title=New public function::${names} needs its invoker bound by hand after the deploy; the steps are in this step's log and the run summary`);
+    }
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### New public function: ${names}\n\n${said}\n\n\`\`\`sh\n${steps.join('\n')}\n\`\`\`\n`);
+    }
+  }
 }
 
 async function call(url, init, { attempts = 4, timeout = 60_000 } = {}) {
@@ -148,7 +192,10 @@ async function probeCallables(endpoints, url, options) {
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"data":{}}' }, options);
       const body = response.error ? '' : await response.text();
       if (response.error || !callableAnswered(response.headers.get('content-type'), body)) {
-        problems.push(`${name} did not answer for itself (${response.error?.message ?? `${response.status} ${body.replace(/\s+/g, ' ').slice(0, 80)}`})`);
+        // Cloud Run's own 403 never reached the code: the invoker binding is
+        // missing, which is what a new function has here (newPublicFunctions).
+        const unbound = response.status === 403 ? '; its public invoker is missing, see ci-tools\' README, "A new function answers 403"' : '';
+        problems.push(`${name} did not answer for itself (${response.error?.message ?? `${response.status} ${body.replace(/\s+/g, ' ').slice(0, 80)}`})${unbound}`);
       }
     }));
   }
