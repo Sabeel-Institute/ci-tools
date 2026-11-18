@@ -4,6 +4,12 @@ Changelog
 Unreleased
 ----------
 
+- ``render-manual`` refuses a manual where a list item would print as part
+  of the paragraph before it, naming each one. Its renderer is
+  python-markdown, which, unlike CommonMark and so GitHub, needs a blank
+  line before a list item that follows a paragraph line: Kanban's v0.19.0
+  manual PDF printed ten items as running text ("as in 1,200. - People — who
+  can see the board").
 - ``native-e2e --seed <script>`` seeds with that script in place of
   ``scripts/seed-emulators.mjs``, and ``--clean-status-bar`` shows 9:41,
   full signal and battery and no notifications (Android's demo mode, the
