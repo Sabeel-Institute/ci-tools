@@ -73,9 +73,12 @@ body = markdown.markdown(source, extensions=['tables', 'smarty', 'md_in_html'])
 # python-markdown is not CommonMark: a list item may not interrupt a paragraph,
 # so an item written on the line after one (no blank line between, as GitHub
 # accepts) is printed as text run on from that paragraph: "as in 1,200. - People
-# — who can see the board". Look at what it produced, not at the source.
+# — who can see the board". Look at what it produced, not at the source. An
+# ordered list interrupts a paragraph in CommonMark only when it starts at 1
+# (and python-markdown never reads "1)"), so a line of prose that wraps onto
+# "2026. After that" is not flagged; the first item names a run-on list.
 run_on = [m.group(1) for p in re.findall(r'<p>(.*?)</p>', body, re.S)
-          for m in re.finditer(r'\n((?:[-*+]|\d+\.) .{0,60})', p)]
+          for m in re.finditer(r'\n((?:[-*+]|1[.)]) .{0,60})', p)]
 if run_on:
     fail('list items printed as part of a paragraph; put a blank line before each:\n  '
          + '\n  '.join(re.sub(r'<[^>]+>', '', line) for line in run_on))
