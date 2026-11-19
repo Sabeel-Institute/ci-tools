@@ -4,7 +4,9 @@
 // 50 from before, and each dispatch is the next run from 51, which a listing
 // leaves out PUBLISH_LAG times after its dispatch. Every run is stamped as
 // started now, as a check run and the upload after it are within a minute;
-// `run watch` fails for the runs FAIL_WATCH names. v<version> is a draft
+// `run watch` fails for the runs FAIL_WATCH names, and `run view` says they
+// failed; for the runs DROP_WATCH names, the first watch drops its connection
+// while `run view` says the run goes on. v<version> is a draft
 // release when DRAFT_RELEASE is set, and none otherwise; FAIL_RELEASE names
 // the `release` subcommand that fails.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -50,7 +52,22 @@ if (args[0] === 'workflow' && args[1] === 'run' && args[2] === 'android-publish.
   writeFileSync(dispatches, String(dispatched() + 1));
   writeFileSync(lagged, '0');
 }
-if (args[0] === 'run' && args[1] === 'watch' && (process.env.FAIL_WATCH ?? '').split(',').includes(args[2])) process.exit(1);
+const named = (name) => (process.env[name] ?? '').split(',').includes(args[2]);
+if (args[0] === 'run' && args[1] === 'watch' && named('FAIL_WATCH')) process.exit(1);
+if (args[0] === 'run' && args[1] === 'watch' && named('DROP_WATCH')) {
+  const dropped = join(dirname(process.env.RELEASE_LOG), `dropped-${args[2]}`);
+  if (!existsSync(dropped)) {
+    writeFileSync(dropped, '1');
+    console.error('failed to get run: net/http: TLS handshake timeout');
+    process.exit(1);
+  }
+}
+if (args[0] === 'run' && args[1] === 'view') {
+  const state = named('DROP_WATCH') ? { status: 'in_progress', conclusion: '' }
+    : named('FAIL_WATCH') ? { status: 'completed', conclusion: 'failure' }
+      : { status: 'completed', conclusion: 'success' };
+  console.log(JSON.stringify(state));
+}
 if (args[0] === 'release' && args[1] === process.env.FAIL_RELEASE) process.exit(1);
 if (args[0] === 'release' && args[1] === 'view') {
   if (!process.env.DRAFT_RELEASE) process.exit(1);

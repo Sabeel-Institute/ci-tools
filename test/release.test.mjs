@@ -285,6 +285,21 @@ describe('release, step 2: --ship', () => {
       .toBeLessThan(said.findIndex((call) => call.startsWith('gh workflow run android-publish.yml')));
   });
 
+  it.each([
+    ['the Android build', '41', { ANDROID_RUNS: JSON.stringify([{ databaseId: 41, status: 'in_progress', conclusion: '', event: 'push' }]) }],
+    ['the Play upload', '52', {}],
+  ])('watches %s again when the connection drops, and ships', (_, id, env) => {
+    const test = fixture();
+    test.merged('0.2.1');
+    const result = test.run(['--ship'], { ...env, DROP_WATCH: id });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`Lost the watch on run ${id} before it ended; watching it again…`);
+    const said = test.said();
+    expect(said.filter((call) => call.startsWith(`gh run watch ${id} `))).toHaveLength(2);
+    expect(said).toContain(`gh run view ${id} --repo Sabeel-Institute/example --json status,conclusion`);
+    expect(said.some((call) => call.startsWith('gh release create'))).toBe(true);
+  });
+
   it('ships only a clean main that origin has', () => {
     const test = fixture();
     test.merged('0.2.1');
@@ -330,7 +345,7 @@ describe('release, step 2: --ship', () => {
   });
 
   it.each([
-    ['the Play upload', { FAIL_WATCH: '52' }, /^Play internal testing did not take run 41's bundle \(above\)\. Nothing was tagged/m, 'gh run watch 52'],
+    ['the Play upload', { FAIL_WATCH: '52' }, /^Play internal testing did not take run 41's bundle \(above\)\. Nothing was tagged/m, 'gh run view 52'],
     ["Play's APK", { FAIL_PLAY_APK: '1' }, /^v0\.2\.1 is on Play internal testing, but sabeel-ci play-apk .* stopped the release[\s\S]*Nothing was tagged/m, 'sabeel-ci play-apk'],
     ['the cold start of Play\'s APK', { FAIL_CHECK_RELEASE: '1' }, /^v0\.2\.1 is on Play internal testing, but sabeel-ci check-release .* stopped the release[\s\S]*Nothing was tagged/m, 'sabeel-ci check-release'],
     ['the draft release', { FAIL_RELEASE: 'create' }, /^v0\.2\.1 is on Play internal testing, but its GitHub release could not be made \(above\)\. Nothing was tagged/m, 'gh release create'],

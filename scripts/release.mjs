@@ -246,13 +246,34 @@ function prepare(version, notesPath, dryRun) {
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-/** `gh run watch` on a run until it ends; false when it failed. */
+/**
+ * Watches run `id` until it ends; true when it passed. `gh run watch` also
+ * stops on a dropped connection (a TLS handshake timeout ended a v0.21.0 ship
+ * as "did not pass" while the build ran on), so a watch that ends badly counts
+ * as a failure only once the run itself says it finished and failed.
+ */
 function watched(repository, id) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      show('gh', ['run', 'watch', String(id), '--repo', repository, '--exit-status', '--interval', '30']);
+      return true;
+    } catch {
+      const state = runState(repository, id);
+      if (state?.status === 'completed') return state.conclusion === 'success';
+      console.log(`Lost the watch on run ${id} before it ended; watching it again…`);
+      sleep(1_000);
+    }
+  }
+  throw new Error(`Could not watch run ${id} to its end in ten tries; see the repository's Actions tab, then ship again.`);
+}
+
+/** Run `id`'s status and conclusion, or null when GitHub could not be asked. */
+function runState(repository, id) {
   try {
-    show('gh', ['run', 'watch', String(id), '--repo', repository, '--exit-status', '--interval', '30']);
-    return true;
+    return JSON.parse(run('gh', ['run', 'view', String(id), '--repo', repository, '--json', 'status,conclusion'],
+      { stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch {
-    return false;
+    return null;
   }
 }
 
